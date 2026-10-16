@@ -36,6 +36,3 @@ Imported working monitor source into `M-ProcessorSystemMonitor` branch.
 - `GHz` shows `N/A` when `powermetrics` P-cluster frequency is unavailable.
 - Background image path must be set in `~/.config/macmonitor.env`;
   the widget runs without it (transparent background fallback).
-
-## 2026-10-16
-- Open WebUI upgraded 0.12.2 → 0.12.3 (manual; backup in ~/owui-backups).
