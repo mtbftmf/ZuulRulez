@@ -3,6 +3,7 @@
 Newest first. Entries before Oct 16, 2026 were reconstructed from chat history.
 
 ## 2026-10-16
+- Open WebUI upgraded 0.12.2 to 0.12.3 (backup in ~/owui-backups).
 - Repo created: MacLLM branch with all M5 scripts, router, templates folder, M1 scripts, docs.
 - Scripts sanitized for the repo: login email moved to `~/.config/macllm.env`; LaunchAgent is now a template rendered with `$USER`.
 
