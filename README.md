@@ -23,6 +23,9 @@ Local LLM setup that runs two models side by side in LM Studio behind Open WebUI
 | Generation | 48.3 tok/s | 125.4 tok/s |
 | Prefill (~7.8K tokens) | 942 tok/s | 3,618 tok/s |
 | Time to first token | 253 ms | 112 ms |
+| Generation @ 28K context (Oct 16) | 44.9 tok/s (−7%) | 90.7 tok/s (−27%) |
+| Prefill @ 28K context (Oct 16) | 909 tok/s, 31 s TTFT | 2,805 tok/s, 10 s TTFT |
+| Peak wired while generating (Oct 16) | 72.3 GB | 20.7 GB |
 | Memory (weights + working) | 58.4 + 8.1 = 66.5 GB | 13.4 + 9.1 = 22.5 GB |
 
 Both models together: ~89 GB real memory (`llm-mem.py`). Flash's 35.8 GB per-layer embedding table stays mostly on SSD via mmap (~6 GB resident).
