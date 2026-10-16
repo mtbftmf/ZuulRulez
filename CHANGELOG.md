@@ -3,6 +3,7 @@
 Newest first. Entries before Oct 16, 2026 were reconstructed from chat history.
 
 ## 2026-10-16
+- `llm-bench.py`: `--load-image` checked before any test starts. Why: a missing image crashed the run after the setup step instead of stopping with a clear message. Result: fails fast with a `screencapture` hint.
 - `llm-bench.py`: optional `--long-ctx N` (decode speed deep in a long context), `--mem` (peak wired, compressor, pressure, swap growth, page-ins per test) and `--load-model` / `--load-image` (second model kept busy, optionally with vision requests). Why: check whether Flash's hybrid attention holds decode flat at depth, and whether combined Gemma vision + Flash load causes swap or mmap page-in stutter. Default run and share line unchanged. Result: verified against a mock server; M5 numbers to add after the first run.
 - Open WebUI upgraded 0.12.2 to 0.12.3 (backup in ~/owui-backups).
 - Repo created: MacLLM branch with all M5 scripts, router, templates folder, M1 scripts, docs.

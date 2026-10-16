@@ -314,6 +314,9 @@ def main():
         a.mem = False
     if a.load_image and not a.load_model:
         ap.error("--load-image needs --load-model")
+    if a.load_image and not os.path.isfile(os.path.expanduser(a.load_image)):
+        ap.error(f"--load-image: no such file: {a.load_image}  "
+                 f"(make one with: screencapture -x ~/Pictures/test.png)")
 
     m = machine_info()
     print(f"Machine: {m}\nModel: {a.model} @ {a.url}")
