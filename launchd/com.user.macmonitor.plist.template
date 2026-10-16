@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+    "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  LaunchDaemon template for Mac Studio System Monitor.
+
+  Before installing:
+    1. Replace every %%PLACEHOLDER%% with your actual values.
+    2. Copy the filled-in file to /Library/LaunchDaemons/com.user.macmonitor.plist
+    3. Set ownership:  sudo chown root:wheel /Library/LaunchDaemons/com.user.macmonitor.plist
+    4. Load:           sudo launchctl bootstrap system /Library/LaunchDaemons/com.user.macmonitor.plist
+    5. Unload:         sudo launchctl bootout  system /Library/LaunchDaemons/com.user.macmonitor.plist
+
+  Placeholders:
+    %%USERNAME%%      – your macOS short username (whoami)
+    %%VENV_PYTHON%%   – full path to venv python3, e.g. /Users/%%USERNAME%%/macmonitor-venv/bin/python3
+    %%SCRIPT_PATH%%   – full path to mac_monitor.py,  e.g. /Users/%%USERNAME%%/.local/bin/mac_monitor.py
+    %%LOG_PATH%%      – full path for stdout log,     e.g. /Users/%%USERNAME%%/.local/bin/mac_monitor.log
+    %%ENV_FILE%%      – full path to your env file,   e.g. /Users/%%USERNAME%%/.config/macmonitor.env
+
+  Machine-specific values (BG image path, history file path, etc.) belong in
+  %%ENV_FILE%%, not here. See env.example in the repo root.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.user.macmonitor</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>%%VENV_PYTHON%%</string>
+        <string>%%SCRIPT_PATH%%</string>
+    </array>
+
+    <!-- Load env vars from a file outside the repo (never committed) -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>MONITOR_ENV_FILE</key>
+        <string>%%ENV_FILE%%</string>
+    </dict>
+
+    <key>UserName</key>
+    <string>%%USERNAME%%</string>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+
+    <key>StandardOutPath</key>
+    <string>%%LOG_PATH%%</string>
+
+    <key>StandardErrorPath</key>
+    <string>%%LOG_PATH%%</string>
+</dict>
+</plist>
