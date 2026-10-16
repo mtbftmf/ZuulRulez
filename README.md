@@ -109,3 +109,4 @@ Model weights, `~/open-webui-data`, Open WebUI exports or backups (they contain 
 - `lms ps` shows file size, not memory. `top`'s "used" includes file cache; wired is ~19 GB after reboot and 70–74 GB once Flash runs.
 - Open WebUI valves: click "Custom" to flip a valve back to Default; saved valve values survive a function code update.
 - launchctl: wait ~5 s after `bootout` before `bootstrap`.
+- Folders: `~/ZuulRulez` stays on MacLLM (`~/bin` links point into it; never `git checkout` there). Monitor work goes in `~/ZuulRulez-monitor` (git worktree).
