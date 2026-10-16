@@ -3,6 +3,7 @@
 Newest first. Entries before Oct 16, 2026 were reconstructed from chat history.
 
 ## 2026-10-16
+- Speculative decoding for Flash dropped from the plan. Why: `llm-mem.py` shows no MTP or draft tensors in the Flash-Next GGUF, and its hybrid linear-attention plus MoE design makes a separate draft model unlikely to help. Next speed option, if any: an MLX build (mlx-serve), measured end to end.
 - `llm-bench.py`: `--load-image` checked before any test starts. Why: a missing image crashed the run after the setup step instead of stopping with a clear message. Result: fails fast with a `screencapture` hint.
 - `llm-bench.py`: optional `--long-ctx N` (decode speed deep in a long context), `--mem` (peak wired, compressor, pressure, swap growth, page-ins per test) and `--load-model` / `--load-image` (second model kept busy, optionally with vision requests). Why: check whether Flash's hybrid attention holds decode flat at depth, and whether combined Gemma vision + Flash load causes swap or mmap page-in stutter. Default run and share line unchanged. Result: at 28K context Flash decode 48.1 → 44.9 tok/s (−7%), Gemma 124.0 → 90.7 (−27%); no swap, pressure normal, page-ins ≤ 0.3 GB; wired follows the active model (72.3 GB Flash, 20.7 GB Gemma, 18.3 GB idle baseline). Combined load (Gemma vision requests back to back while Flash is measured): Flash decode 28.7 tok/s (−40%), 26.8 at 28K, prefill 746 tok/s (−20%); Gemma 62.1 tok/s (−50%); peak wired 75.8 GB, no swap, pressure normal.
 - Open WebUI upgraded 0.12.2 to 0.12.3 (backup in ~/owui-backups).
