@@ -8,3 +8,11 @@ dist/
 .env*
 *secret*
 *token*
+
+# Mac Studio Monitor — machine-specific and runtime files
+*.env
+~/.config/
+*.webp
+*.log
+mem_history.json
+monitor_state.json
