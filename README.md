@@ -78,6 +78,8 @@ The router never sends `reasoning_effort`. Thresholds and phrase lists are valve
 | Stop everything | `~/bin/flash-down.sh` |
 | Upgrade Open WebUI (with backup and rollback) | `~/bin/owui-upgrade.sh` |
 | Benchmark | `python3 ~/bin/llm-bench.py --model flash-next` |
+| Benchmark at depth, with memory | `python3 ~/bin/llm-bench.py --model flash-next --long-ctx 28000 --mem` |
+| Benchmark under combined load | add `--load-model gemma-4-26b-a4b-it-qat --load-image ~/Pictures/test.png` |
 | Memory per model | `python3 ~/bin/llm-mem.py` |
 | Watch requests | `~/.lmstudio/bin/lms log stream` |
 | Copy a persona setting to sibling personas | `owui-sync-flash.sh` (report → dry run → `DRY_RUN=0`) |
