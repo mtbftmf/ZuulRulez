@@ -26,7 +26,10 @@ Local LLM setup that runs two models side by side in LM Studio behind Open WebUI
 | Generation @ 28K context (Oct 16) | 44.9 tok/s (−7%) | 90.7 tok/s (−27%) |
 | Prefill @ 28K context (Oct 16) | 909 tok/s, 31 s TTFT | 2,805 tok/s, 10 s TTFT |
 | Peak wired while generating (Oct 16) | 72.3 GB | 20.7 GB |
+| Both busy (Gemma vision + Flash, Oct 16) | 28.7 tok/s, 26.8 @ 28K | 62.1 tok/s |
 | Memory (weights + working) | 58.4 + 8.1 = 66.5 GB | 13.4 + 9.1 = 22.5 GB |
+
+Idle baseline is ~18 GB wired; with both models generating at once, peak wired is 75.8 GB (no swap, pressure normal), well under the ~96 GB default limit. Contention costs speed, not memory: each model loses 40–50% while the other is busy.
 
 Both models together: ~89 GB real memory (`llm-mem.py`). Flash's 35.8 GB per-layer embedding table stays mostly on SSD via mmap (~6 GB resident).
 
