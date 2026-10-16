@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.__USER__.flash-up</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/zsh</string>
+    <string>-c</string>
+    <string>for i in {1..30}; do ~/.lmstudio/bin/lms ps >/dev/null 2>&amp;1 &amp;&amp; break; sleep 5; done; sleep 30; OWUI_LABEL= ~/bin/flash-up.sh</string>
+  </array>
+  <key>RunAtLoad</key><true/>
+  <key>StandardOutPath</key><string>__HOME__/Library/Logs/flash-up.log</string>
+  <key>StandardErrorPath</key><string>__HOME__/Library/Logs/flash-up.log</string>
+</dict>
+</plist>

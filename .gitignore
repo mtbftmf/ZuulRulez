@@ -1,0 +1,28 @@
+# Model weights and model folders (tens of GB)
+*.gguf
+*.safetensors
+*.bin
+models/
+
+# Open WebUI data, exports and backups: contain chats, memories, prompts with personal details
+open-webui-data/
+owui-backups/
+owui-models-backup-*.json
+owui-model-config-backup*.json
+*.tgz
+
+# Secrets and local config
+*.env
+!env.example
+.env*
+*secret*
+*token*
+*.pem
+*.key
+
+# Machine output
+__pycache__/
+*.pyc
+.DS_Store
+*.log
+llm-bench-history.csv
