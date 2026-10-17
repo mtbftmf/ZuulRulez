@@ -5,6 +5,14 @@ newest first. Format: `YYYY-MM-DD — what changed, why, measured result`.
 
 ---
 
+## 2026-10-17 — MBP monitor vertical mini strip
+
+Propagated vertical mini strip layout from Studio monitor to MBP monitor.
+Rows stack top-to-bottom: MEM · GPU · SWP · BAT · ▼ expand (130 × 110 px).
+Replaced horizontal MINI_HEIGHT bar; added MINI_WIDTH / MINI_ROW_H constants.
+
+---
+
 ## 2026-10-16 — Initial repo import
 
 Imported working monitor source into `M-ProcessorSystemMonitor` branch.
