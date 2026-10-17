@@ -3,7 +3,7 @@
 Mac Studio System Monitor
 Run: python3 mac_monitor.py
 Requirements: pip3 install psutil Pillow flask --break-system-packages
-Background image: set MONITOR_BG_IMAGE env var (see env.example)
+Background image: /Users/ewagner/.local/bin/TxtSysMonBkgd.webp
 Web dashboard: http://<studio-ip>:9090
 """
 
@@ -37,16 +37,17 @@ WIN_HEIGHT      = 455       # 12 stat rows + taller graph
 STATS_HEIGHT    = 290
 GRAPH_HEIGHT    = 160
 STATS_WIDTH     = 160
-MINI_HEIGHT     = 28
+MINI_WIDTH      = 110   # vertical mini strip width
+MINI_ROW_H      = 18    # height per stat row in mini strip
 FONT_FAMILY     = "Courier"
 FONT_SIZE       = 11
 TITLE_SIZE      = 9
 BORDER_COLOR    = "#ff6eb4"
 BG_COLOR        = "#08080f"
-BG_IMAGE        = os.environ.get("MONITOR_BG_IMAGE", os.path.expanduser("~/.local/bin/TxtSysMonBkgd.webp"))
+BG_IMAGE        = "/Users/ewagner/.local/bin/TxtSysMonBkgd.webp"
 IMG_CROP_LEFT   = 0.38
-HISTORY_FILE    = os.environ.get("MONITOR_HISTORY_FILE", os.path.expanduser("~/.local/bin/mem_history.json"))
-STATE_FILE      = os.environ.get("MONITOR_STATE_FILE",  os.path.expanduser("~/.local/bin/monitor_state.json"))
+HISTORY_FILE    = os.path.expanduser("~/.local/bin/mem_history.json")
+STATE_FILE      = os.path.expanduser("~/.local/bin/monitor_state.json")
 MAX_HISTORY     = 25920
 GRAPH_WINDOW    = 36000     # 10h desktop window (web JS uses its own WS=129600)
 WEB_PORT        = 9090
@@ -786,8 +787,9 @@ class MonitorApp:
         _mini_x = _ws.get("mini_x"); _mini_y = _ws.get("mini_y")
         _was_minimized = _ws.get("minimized", False)
 
+        _mini_h = MINI_ROW_H * 5   # MEM + GPU + SWP + g4 + restore arrow
         if _was_minimized and _mini_x is not None and _mini_y is not None:
-            root.geometry(f"{WIN_WIDTH}x{MINI_HEIGHT}+{_mini_x}+{_mini_y}")
+            root.geometry(f"{MINI_WIDTH}x{_mini_h}+{_mini_x}+{_mini_y}")
         elif _x is not None and _y is not None:
             root.geometry(f"{WIN_WIDTH}x{WIN_HEIGHT}+{_x}+{_y}")
         else:
@@ -865,21 +867,24 @@ class MonitorApp:
         self._graph_photo  = None
         self._graph_img_id = self.canvas.create_image(gx+1, gy+1, anchor="nw")
 
-        # Mini strip
-        self._mini_frame = tk.Frame(root, bg=BG_COLOR, height=MINI_HEIGHT)
+        # Mini strip — vertical stack
+        _mini_h = MINI_ROW_H * 5
+        self._mini_frame = tk.Frame(root, bg=BG_COLOR, width=MINI_WIDTH)
         self._mini_mem = tk.Label(self._mini_frame, text="MEM:…",
-            font=(FONT_FAMILY, 9, "bold"), fg=PRESSURE_COLORS["Green"], bg=BG_COLOR)
+            font=(FONT_FAMILY, 9, "bold"), fg=PRESSURE_COLORS["Green"], bg=BG_COLOR, anchor="w")
         self._mini_gpu = tk.Label(self._mini_frame, text="GPU:…",
-            font=(FONT_FAMILY, 9, "bold"), fg=STAT_COLORS["GPU"], bg=BG_COLOR)
+            font=(FONT_FAMILY, 9, "bold"), fg=STAT_COLORS["GPU"], bg=BG_COLOR, anchor="w")
         self._mini_swp = tk.Label(self._mini_frame, text="SWP:…",
-            font=(FONT_FAMILY, 9, "bold"), fg=STAT_COLORS["SWP"], bg=BG_COLOR)
-        self._mini_rst = tk.Label(self._mini_frame, text="▼",
-            font=(FONT_FAMILY, 7, "bold"), fg=BORDER_COLOR, bg=BG_COLOR, cursor="hand2")
+            font=(FONT_FAMILY, 9, "bold"), fg=STAT_COLORS["SWP"], bg=BG_COLOR, anchor="w")
+        self._mini_g4  = tk.Label(self._mini_frame, text="g4:…",
+            font=(FONT_FAMILY, 9, "bold"), fg=STAT_COLORS["G4"],  bg=BG_COLOR, anchor="w")
+        self._mini_rst = tk.Label(self._mini_frame, text="▼ expand",
+            font=(FONT_FAMILY, 7, "bold"), fg=BORDER_COLOR, bg=BG_COLOR, cursor="hand2", anchor="w")
         self._mini_rst.bind("<Button-1>", lambda e: self._toggle_minimize())
         self._mini_frame.bind("<Button-1>", lambda e: self._toggle_minimize())
         self._mini_frame.configure(cursor="hand2")
-        for w in [self._mini_mem, self._mini_gpu, self._mini_swp, self._mini_rst]:
-            w.pack(side="left", padx=6)
+        for w in [self._mini_mem, self._mini_gpu, self._mini_swp, self._mini_g4, self._mini_rst]:
+            w.pack(side="top", fill="x", padx=4)
             w.bind("<Button-1>", lambda e: self._toggle_minimize())
 
         self._save_counter = 0
@@ -888,7 +893,8 @@ class MonitorApp:
             self._minimized = True
             self._min_btn.place_forget()
             self.canvas.place_forget()
-            self._mini_frame.place(x=0, y=0, width=260, height=MINI_HEIGHT)
+            _mini_h = MINI_ROW_H * 5
+            self._mini_frame.place(x=0, y=0, width=MINI_WIDTH, height=_mini_h)
 
         root.after(3000, lambda: setattr(self, "_startup", False))
         self.update_stats()
@@ -916,8 +922,9 @@ class MonitorApp:
         else:
             self._min_btn.place_forget()
             self.canvas.place_forget()
-            self._mini_frame.place(x=0, y=0, width=290, height=MINI_HEIGHT)
-            self.root.geometry(f"290x{MINI_HEIGHT}")
+            _mini_h = MINI_ROW_H * 5
+            self._mini_frame.place(x=0, y=0, width=MINI_WIDTH, height=_mini_h)
+            self.root.geometry(f"{MINI_WIDTH}x{_mini_h}")
             self._minimized = True
             self.root.update_idletasks()
             _save_window_state(self.root.winfo_x(), self.root.winfo_y(), True)
@@ -959,6 +966,8 @@ class MonitorApp:
             self._mini_mem.config(text=f"MEM:{mem_pct}", fg=gui_mem_color)
             self._mini_gpu.config(text=f"GPU:{gpu_txt}")
             self._mini_swp.config(text=f"SWP:{swp_txt}")
+            self._mini_g4.config(text=f"g4:{get_lms_model_display('g4')}",
+                                 fg=get_lms_model_color('g4', 'G4'))
 
         self._save_counter += 1
         if self._save_counter >= 24:
