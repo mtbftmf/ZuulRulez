@@ -72,7 +72,7 @@ The router never sends `reasoning_effort`. Thresholds and phrase lists are valve
 
 - Connection: OpenAI API `http://localhost:1234/v1`, no prefix; Ollama and Direct Connections off.
 - Task Model: Gemma (titles, tags, follow-ups never hit Flash).
-- Personas: Flash-* (Chef, Finance, General, IT, IT-Deep, Musician, Scripting) and Gemma-* (same set minus IT-Deep), plus Auto. Built-in tools off on all of them.
+- Personas: Flash-* (Chef, Clarinet-Sax Musician, Finance, General, Guitar Musician, IT, IT-Deep, Scripting) and Gemma-* (same set minus IT-Deep), plus Auto. Built-in tools off on all of them.
 - Dropdown order: Auto first, then A–Z (`owui-sort-models.sh`).
 - Scripts authenticate with a login token; put `OWUI_EMAIL` in `~/.config/macllm.env` (see `env.example`).
 
