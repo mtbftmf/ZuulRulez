@@ -37,6 +37,19 @@ Test 1 (3-part Raspberry Pi Wi-Fi troubleshooting prompt), end to end: ~7.5 min 
 
 ![Efficiency](docs/images/flash-next-tuning.png)
 
+### Behavior probes (Oct 18, `llm-probe.py`)
+
+| Check | Result |
+| --- | --- |
+| Context per request (parallel 4, 32K) | A 17.8K-token prompt passed; the limit is the full 32,768 shared by all slots, not 8K per slot |
+| Prefix cache (11.9K-token prompt sent twice) | TTFT 12.9 s → 0.05 s |
+| Decode across code, prose and reasoning prompts | 47.8–48.4 tok/s |
+| Effort, easy prompt (reasoning tokens, median) | low 170 · default 281 · xhigh 257 |
+| Effort, medium prompt (probability question) | low 436 · default 445 · xhigh 492; ~14–18 s for every level |
+| Effort, hard prompt (integer search) | every level, low included, hit the 8,192-token cap while still reasoning |
+
+Takeaway: on everyday prompts the model sets its own reasoning depth and the effort level barely matters; xhigh only pays off (or costs, as in Test 1) on long, hard tasks. Effort steers reasoning but does not cap it, so `max_tokens` per persona is the real time limit. Flash attention on vs. off is not settled yet: the quick suite's short prompts can't show a prefill difference; compare `--suite ctx` runs instead.
+
 ## Effort control
 
 Flash-Next's stock chat template forces `xhigh` reasoning, LM Studio ignores `reasoning_effort` in requests, and its Chat Template box blocks paste. The template inside GGUF shard 1 was rewritten instead (`m5/bin/gguf-set-template.py`): default `medium`; `[effort:xhigh]` or `[effort:low]` in the first system message overrides it.
@@ -55,6 +68,8 @@ mv ~/shard1-new.gguf Qwen3.8-Flash-Next-AD-4.27bpw-Q4_K_M-M64-00001-of-00033.ggu
 ```
 
 Verify with `~/.lmstudio/bin/lms log stream`: a plain request shows no "Reasoning effort is set" line; an `[effort:xhigh]` request does.
+
+Or check token counts: `llm-probe.py --suite effort` shows the prompt growing by the injected instruction (low +33, xhigh +45 tokens over default). Effort is a tendency, not a budget: set `max_tokens` on personas that must stay fast.
 
 ## Auto Router (`m5/openwebui/auto_router.py`, v1.3.1)
 
@@ -86,6 +101,8 @@ The router never sends `reasoning_effort`. Thresholds and phrase lists are valve
 | Benchmark | `python3 ~/bin/llm-bench.py --model flash-next` |
 | Benchmark at depth, with memory | `python3 ~/bin/llm-bench.py --model flash-next --long-ctx 28000 --mem` |
 | Benchmark under combined load | add `--load-model gemma-4-26b-a4b-it-qat --load-image ~/Pictures/test.png` |
+| Probe context, cache and effort | `python3 ~/bin/llm-probe.py --suite all` |
+| Compare probe runs | `python3 ~/bin/llm-probe.py --summary llm-probe-history.csv` |
 | Memory per model | `python3 ~/bin/llm-mem.py` |
 | Watch requests | `~/.lmstudio/bin/lms log stream` |
 | Copy a persona setting to sibling personas | `owui-sync-flash.sh` (report → dry run → `DRY_RUN=0`) |

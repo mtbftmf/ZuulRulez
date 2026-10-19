@@ -3,6 +3,7 @@
 Newest first. Entries before Oct 16, 2026 were reconstructed from chat history.
 
 ## 2026-10-18
+- `llm-probe.py` added (effort, context-per-request and prefix-cache probes; complements `llm-bench.py`), results in README. Why: confirm parallel 4 isn't splitting the 32K context, that `[effort:…]` markers reach the template, and what each effort level costs. Result: a 17.8K-token prompt passes, so slots share the full 32K; prefix cache cuts TTFT 12.9 s → 0.05 s on 11.9K tokens; markers switch the injected instruction (prompt +33 low, +45 xhigh), but reasoning tokens are nearly flat across levels on easy and medium prompts (medium prompt: low 436, default 445, xhigh 492), and on a hard prompt every level, low included, ran past 8,192 tokens, so `max_tokens` is the real limit; decode steady at 47.8–48.4 tok/s.
 - Personas: the single Musician persona on each model replaced by Clarinet-Sax Musician and Guitar Musician (acoustic, classical and electric 6-string), four personas in all (Flash and Gemma). Why: clarinet/sax and guitar need different advice, and one combined prompt diluted both. Result: 15 personas (Flash 8, Gemma 7); clarinet-sax prompts unchanged from the old Musician ones, guitar prompt new. Prompt text is not in the repo because it names personal gear.
 - Dropdown re-sorted (Auto first, then A-Z) after the persona change. Why: the manual order list still held the removed ids and left the new personas at the end.
 - CHANGELOG: removed two duplicated 2026-10-16 lines (speculative decoding entry appeared three times).
