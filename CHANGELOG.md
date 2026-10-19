@@ -3,6 +3,7 @@
 Newest first. Entries before Oct 16, 2026 were reconstructed from chat history.
 
 ## 2026-10-19
+- Auto Router v1.3.2: per-route `max_tokens` valves (Flash medium 8192, Flash xhigh 24576, Gemma none); a request's own `max_tokens` still wins; `/route` and the status line show the cap; a reply cut off by the cap ends with a note. Why: Auto builds its own LM Studio request, so `/deep` and score-7 xhigh routes ran uncapped, and effort does not bound length (hard prompt ran ~10 min at every level). Result: mock LM Studio test passed (each route sends the right cap, chat setting overrides, cut-off note in streaming and non-streaming); on the Mac, `/route` shows 24,576 for `/deep` and no cap for Gemma, and with `STRONG_MAX_TOKENS` set to 64 a `/flash` request stopped at 64 tokens with the cut-off note (valve then restored to 8192).
 - README: hard-prompt effort test at a 28K cap, corrected effort takeaway, suggested `max_tokens` per persona (not yet applied in Open WebUI). Why: the 8K-cap run clipped every level, so it couldn't show whether effort matters on hard tasks. Result (`llm-probe.py --suite effort --max-tokens 28000`, 1 run each): low 27,992 reasoning tokens → cap, default 25,489 + 2,129 answer → finished, xhigh 27,986 → cap, ~10 min each; effort does not predict length, so `max_tokens` is the real limit; decode held 45.8–46.3 tok/s to 28K.
 
 ## 2026-10-18

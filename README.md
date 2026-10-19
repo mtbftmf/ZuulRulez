@@ -80,9 +80,9 @@ Suggested `max_tokens` (Open WebUI → persona → Advanced Params):
 | Flash-Chef, Finance, General, IT, Scripting, both Musicians | 8192 | ~3 min |
 | Flash-IT-Deep | 16384–24576 | ~6–9 min |
 
-Not set yet. Auto's `/deep` and score-7 routes are not covered by persona caps; check what limit Auto requests carry before relying on one.
+Persona caps are not set yet. Auto ignores persona settings and uses its own valves (see Auto Router).
 
-## Auto Router (`m5/openwebui/auto_router.py`, v1.3.1)
+## Auto Router (`m5/openwebui/auto_router.py`, v1.3.2)
 
 Paste into Open WebUI → Admin → Functions. Routing, first match wins:
 
@@ -93,6 +93,8 @@ Paste into Open WebUI → Admin → Functions. Routing, first match wins:
 5. Otherwise → Gemma.
 
 The router never sends `reasoning_effort`. Thresholds and phrase lists are valves.
+
+Token caps (v1.3.2): Auto builds its own request to LM Studio, so persona `max_tokens` settings never reach it. Valves set the cap per route: `STRONG_MAX_TOKENS` 8192 (Flash, medium), `DEEP_MAX_TOKENS` 24576 (Flash, xhigh), `FAST_MAX_TOKENS` 0 (Gemma, no cap). A `max_tokens` already in the request wins. `/route` and the status line show the cap; a reply cut off by it ends with a note.
 
 ## Open WebUI setup
 

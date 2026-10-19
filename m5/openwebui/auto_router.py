@@ -1,7 +1,7 @@
 """
 title: Auto Router (Gemma ⇄ Flash-Next)
 author: Pdl_Pwr
-version: 1.3.1
+version: 1.3.2
 description: One "Auto" model. Quick requests go to Gemma 4 26B-A4B, clearly complex ones to
              Qwen3.8-Flash-Next (medium effort), both served by LM Studio.
              Prefixes: /flash or /strong, /gemma or /fast, /deep (Flash at xhigh effort),
@@ -11,6 +11,13 @@ description: One "Auto" model. Quick requests go to Gemma 4 26B-A4B, clearly com
 requirements: httpx
 """
 
+# v1.3.2 changes (Oct 19 2026)
+# - Per-route max_tokens caps: STRONG_MAX_TOKENS (Flash, medium), DEEP_MAX_TOKENS (Flash, xhigh),
+#   FAST_MAX_TOKENS (Gemma); 0 = no cap. A max_tokens already in the request (chat Controls) wins.
+#   Why: effort level does not bound reasoning length; uncapped xhigh requests ran 10+ min.
+# - A reply cut off by the cap ends with a note saying so (a capped run may have no answer yet).
+# - /route also shows the cap that would apply.
+#
 # v1.3 changes (Oct 14 2026)
 # - DEEP_PHRASES: explicit asks for depth ("think carefully", "deep dive", ...) → Flash + [effort:xhigh].
 # - DEEP_SCORE: messages scoring this high (several strong signals at once) → Flash + [effort:xhigh].
@@ -82,6 +89,9 @@ class Pipe:
                                    description="JSON sampling params for the strong model")
         FAST_PARAMS: str = Field(default='{"temperature": 1.0, "top_p": 0.95, "top_k": 64}',
                                  description="JSON sampling params for the fast model")
+        STRONG_MAX_TOKENS: int = Field(default=8192, description="max_tokens for Flash at medium effort (0 = no cap)")
+        DEEP_MAX_TOKENS: int = Field(default=24576, description="max_tokens for Flash at xhigh: /deep, deep phrases, DEEP_SCORE (0 = no cap)")
+        FAST_MAX_TOKENS: int = Field(default=0, description="max_tokens for Gemma (0 = no cap)")
 
     def __init__(self):
         self.valves = self.Valves()
@@ -235,13 +245,31 @@ class Pipe:
         return False, False, f"score {score}" + (": " + ", ".join(reasons) if reasons else "") + " (quick)", False
 
     # ---------- forwarding ----------
+    def _cap(self, use_strong: bool, deep: bool, body: dict):
+        """max_tokens for this route: request value first, then the route's valve; None = no cap."""
+        try:
+            if body.get("max_tokens"):
+                return int(body["max_tokens"]), "chat setting"
+        except (TypeError, ValueError):
+            pass
+        cap = (self.valves.DEEP_MAX_TOKENS if deep else self.valves.STRONG_MAX_TOKENS) if use_strong \
+            else self.valves.FAST_MAX_TOKENS
+        return (cap, "valve") if cap and cap > 0 else (None, None)
+
+    @staticmethod
+    def _cap_note(cap):
+        return f"\n\n*(Stopped at the {cap:,}-token cap; the answer may be missing or incomplete.)*"
+
     async def pipe(self, body: dict, __event_emitter__=None):
         messages = [dict(m) for m in body.get("messages", [])]
         use_strong, deep, reason, dry_run = await self.route(messages)
         label = ("Flash-Next (xhigh)" if deep else "Flash-Next") if use_strong else "Gemma"
 
+        cap, cap_src = self._cap(use_strong, deep, body)
+        cap_txt = f"cap {cap:,} tokens ({cap_src})" if cap else "no token cap"
+
         if dry_run:
-            return f"**Route test:** this message would go to **{label}**: {reason}."
+            return f"**Route test:** this message would go to **{label}**: {reason}; {cap_txt}."
 
         model = self.valves.STRONG_MODEL if use_strong else self.valves.FAST_MODEL
         if deep:
@@ -249,15 +277,15 @@ class Pipe:
 
         if __event_emitter__ and self.valves.SHOW_ROUTE:
             await __event_emitter__({"type": "status",
-                                     "data": {"description": f"→ {label} ({reason})", "done": True}})
+                                     "data": {"description": f"→ {label} ({reason}; {cap_txt})", "done": True}})
 
         try:
             params = json.loads(self.valves.STRONG_PARAMS if use_strong else self.valves.FAST_PARAMS)
         except json.JSONDecodeError:
             params = {}
         payload = {"model": model, "messages": messages, "stream": bool(body.get("stream", True)), **params}
-        if body.get("max_tokens"):
-            payload["max_tokens"] = body["max_tokens"]
+        if cap:
+            payload["max_tokens"] = cap
         url = f"{self.valves.LMSTUDIO_URL.rstrip('/')}/chat/completions"
 
         if not payload["stream"]:
@@ -265,14 +293,18 @@ class Pipe:
                 r = await c.post(url, json=payload)
                 if r.status_code != 200:
                     return f"**Router error {r.status_code} from {model}:** {r.text[:400]}"
-                msg = (r.json().get("choices") or [{}])[0].get("message") or {}
+                choice = (r.json().get("choices") or [{}])[0]
+                msg = choice.get("message") or {}
                 think = msg.get("reasoning_content") or msg.get("reasoning")
-                return (f"<think>{think}</think>\n" if think else "") + (msg.get("content") or "")
+                note = self._cap_note(payload["max_tokens"]) \
+                    if choice.get("finish_reason") == "length" and payload.get("max_tokens") else ""
+                return (f"<think>{think}</think>\n" if think else "") + (msg.get("content") or "") + note
 
         return self._stream(url, payload, model)
 
     async def _stream(self, url, payload, model) -> AsyncGenerator:
         in_think = False
+        finish = None
         async with httpx.AsyncClient(timeout=None) as c:
             async with c.stream("POST", url, json=payload) as r:
                 if r.status_code != 200:
@@ -286,9 +318,11 @@ class Pipe:
                     if data == "[DONE]":
                         break
                     try:
-                        delta = (json.loads(data).get("choices") or [{}])[0].get("delta") or {}
+                        choice = (json.loads(data).get("choices") or [{}])[0]
+                        delta = choice.get("delta") or {}
                     except (json.JSONDecodeError, IndexError, AttributeError):
                         continue
+                    finish = choice.get("finish_reason") or finish
                     think = delta.get("reasoning_content") or delta.get("reasoning")
                     if think:
                         if not in_think:
@@ -303,3 +337,5 @@ class Pipe:
                         yield content
         if in_think:
             yield "</think>\n"
+        if finish == "length" and payload.get("max_tokens"):
+            yield self._cap_note(payload["max_tokens"])
