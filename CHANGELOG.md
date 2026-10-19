@@ -2,6 +2,9 @@
 
 Newest first. Entries before Oct 16, 2026 were reconstructed from chat history.
 
+## 2026-10-19
+- README: hard-prompt effort test at a 28K cap, corrected effort takeaway, suggested `max_tokens` per persona (not yet applied in Open WebUI). Why: the 8K-cap run clipped every level, so it couldn't show whether effort matters on hard tasks. Result (`llm-probe.py --suite effort --max-tokens 28000`, 1 run each): low 27,992 reasoning tokens → cap, default 25,489 + 2,129 answer → finished, xhigh 27,986 → cap, ~10 min each; effort does not predict length, so `max_tokens` is the real limit; decode held 45.8–46.3 tok/s to 28K.
+
 ## 2026-10-18
 - `llm-probe.py` added (effort, context-per-request and prefix-cache probes; complements `llm-bench.py`), results in README. Why: confirm parallel 4 isn't splitting the 32K context, that `[effort:…]` markers reach the template, and what each effort level costs. Result: a 17.8K-token prompt passes, so slots share the full 32K; prefix cache cuts TTFT 12.9 s → 0.05 s on 11.9K tokens; markers switch the injected instruction (prompt +33 low, +45 xhigh), but reasoning tokens are nearly flat across levels on easy and medium prompts (medium prompt: low 436, default 445, xhigh 492), and on a hard prompt every level, low included, ran past 8,192 tokens, so `max_tokens` is the real limit; decode steady at 47.8–48.4 tok/s.
 - Personas: the single Musician persona on each model replaced by Clarinet-Sax Musician and Guitar Musician (acoustic, classical and electric 6-string), four personas in all (Flash and Gemma). Why: clarinet/sax and guitar need different advice, and one combined prompt diluted both. Result: 15 personas (Flash 8, Gemma 7); clarinet-sax prompts unchanged from the old Musician ones, guitar prompt new. Prompt text is not in the repo because it names personal gear.

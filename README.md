@@ -47,8 +47,10 @@ Test 1 (3-part Raspberry Pi Wi-Fi troubleshooting prompt), end to end: ~7.5 min 
 | Effort, easy prompt (reasoning tokens, median) | low 170 · default 281 · xhigh 257 |
 | Effort, medium prompt (probability question) | low 436 · default 445 · xhigh 492; ~14–18 s for every level |
 | Effort, hard prompt (integer search) | every level, low included, hit the 8,192-token cap while still reasoning |
+| Effort, same hard prompt, 28K cap (Oct 19, 1 run each) | low 27,992 reasoning → cap · default 25,489 + 2,129 answer → finished · xhigh 27,986 → cap; ~10 min each |
+| Decode while generating to 28K | 45.8–46.3 tok/s |
 
-Takeaway: on everyday prompts the model sets its own reasoning depth and the effort level barely matters; xhigh only pays off (or costs, as in Test 1) on long, hard tasks. Effort steers reasoning but does not cap it, so `max_tokens` per persona is the real time limit. Flash attention on vs. off is not settled yet: the quick suite's short prompts can't show a prefill difference; compare `--suite ctx` runs instead.
+Takeaway: effort level does not predict reasoning length. On easy and medium prompts the model sets its own depth; on a hard one every level ran ~10 min, and low ran longest. Medium stays the default, `[effort:low]` buys no speed, and `[effort:xhigh]` is a nudge, not a guarantee (Test 1's gain was specific to that task). `max_tokens` per persona is the only real time limit: at ~46 tok/s each 1K tokens is ~22 s. A capped run that is still reasoning returns little or no answer, so caps on deep personas should be generous. Flash attention on vs. off is not settled yet: the quick suite's short prompts can't show a prefill difference; compare `--suite ctx` runs instead.
 
 ## Effort control
 
@@ -70,6 +72,15 @@ mv ~/shard1-new.gguf Qwen3.8-Flash-Next-AD-4.27bpw-Q4_K_M-M64-00001-of-00033.ggu
 Verify with `~/.lmstudio/bin/lms log stream`: a plain request shows no "Reasoning effort is set" line; an `[effort:xhigh]` request does.
 
 Or check token counts: `llm-probe.py --suite effort` shows the prompt growing by the injected instruction (low +33, xhigh +45 tokens over default). Effort is a tendency, not a budget: set `max_tokens` on personas that must stay fast.
+
+Suggested `max_tokens` (Open WebUI → persona → Advanced Params):
+
+| Personas | max_tokens | Worst case at ~46 tok/s |
+| --- | --- | --- |
+| Flash-Chef, Finance, General, IT, Scripting, both Musicians | 8192 | ~3 min |
+| Flash-IT-Deep | 16384–24576 | ~6–9 min |
+
+Not set yet. Auto's `/deep` and score-7 routes are not covered by persona caps; check what limit Auto requests carry before relying on one.
 
 ## Auto Router (`m5/openwebui/auto_router.py`, v1.3.1)
 
