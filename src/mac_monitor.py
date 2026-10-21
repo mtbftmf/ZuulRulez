@@ -33,8 +33,8 @@ LMS_URL         = "http://localhost:1234"
 LMS_BIN         = os.path.expanduser("~/.lmstudio/bin/lms")
 TPS_GRAPH_SCALE = 125.0     # 125 t/s = 100% of graph (gemma peaks ~118)
 WIN_WIDTH       = 360
-WIN_HEIGHT      = 455       # 12 stat rows + taller graph
-STATS_HEIGHT    = 290
+WIN_HEIGHT      = 490       # 14 stat rows + taller graph
+STATS_HEIGHT    = 325
 GRAPH_HEIGHT    = 160
 STATS_WIDTH     = 160
 MINI_WIDTH      = 130   # vertical mini strip width
@@ -84,6 +84,8 @@ STAT_COLORS = {
     "EFF": "#88aaff",   # 8.78:1
     "G4":  "#e040fb",   #  7.21:1  violet — Gemma t/s, matches TPS graph line
     "FLS": "#c060e0",   #  5.98:1  lighter violet — Flash t/s
+    "SD1": "#ff9966",   #  8.12:1  warm orange — SSD1 temp (disk4)
+    "SD2": "#ffb347",   #  9.34:1  amber — SSD2 temp (disk6)
 }
 
 PRESSURE_COLORS = {"Green": "#00e676", "Yellow": "#ffd600", "Red": "#ff1744"}
@@ -493,6 +495,35 @@ def get_efficiency():
     return "…" if (g is None or m is None or m<10) else f"{g/(m/1000):.1f} %/W"
 
 
+# ── External SSD temps (smartctl, 60 s cache) ────────────────────────────────
+
+_SSD_DISKS    = {"SD1": "/dev/disk4", "SD2": "/dev/disk6"}
+_SSD_TEMP_RE  = re.compile(r"^Temperature:\s+(\d+)\s+Celsius", re.MULTILINE)
+_ssd_temp_cache: dict = {}   # key → (temp_str, expire_ts)
+_SSD_INTERVAL = 60           # seconds between smartctl calls
+
+def get_ssd_temp(key: str) -> str:
+    """Return 'NN°C' for the given disk key, cached for _SSD_INTERVAL seconds."""
+    now = time.time()
+    cached = _ssd_temp_cache.get(key)
+    if cached and now < cached[1]:
+        return cached[0]
+    disk = _SSD_DISKS.get(key)
+    if not disk:
+        return "N/A"
+    try:
+        out = subprocess.check_output(
+            ["sudo", "smartctl", "-a", disk],
+            text=True, timeout=10, stderr=subprocess.DEVNULL
+        )
+        m = _SSD_TEMP_RE.search(out)
+        result = f"{m.group(1)}°C" if m else "N/A"
+    except Exception as e:
+        log.warning("smartctl %s error: %s", disk, e)
+        result = "N/A"
+    _ssd_temp_cache[key] = (result, now + _SSD_INTERVAL)
+    return result
+
 
 # ── PIL graph renderer ────────────────────────────────────────────────────────
 
@@ -837,6 +868,7 @@ class MonitorApp:
             ("USE","USE"),("RAM","RAM"),("MEM","MEM"),("SSD","SSD"),
             ("GHz","GHz"),("GPU","GPU"),("PWR","PWR"),("SWP","SWP"),
             ("THM","THM"),("EFF","EFF"),("G4","g4 t/s"),("FLS","fls t/s"),
+            ("SD1","SSD1"),("SD2","SSD2"),
         ]
         self.value_items = {}
         row_start_y = 38
@@ -963,6 +995,8 @@ class MonitorApp:
             fls_color = get_lms_model_color("flash",  "FLS")
             self.canvas.itemconfig(self.value_items["G4"],  text=get_lms_model_display("g4"),    fill=g4_color)
             self.canvas.itemconfig(self.value_items["FLS"], text=get_lms_model_display("flash"),  fill=fls_color)
+            self.canvas.itemconfig(self.value_items["SD1"], text=get_ssd_temp("SD1"))
+            self.canvas.itemconfig(self.value_items["SD2"], text=get_ssd_temp("SD2"))
             self.draw_graph()
         else:
             self._mini_mem.config(text=f"MEM:{mem_pct}", fg=gui_mem_color)
