@@ -47,3 +47,4 @@ Newest first. Entries before Oct 16, 2026 were reconstructed from chat history.
 
 ## 2026-10-09 (approx.)
 - Muse removed; Flash-Next + Gemma stack built; personas cloned to Flash; startup/shutdown scripts; Open WebUI upgraded and DATA_DIR moved; M1 Max Gemma-only handoff.
+2026-06-16 docs: earmark Auto Router M5 Max policy in MacLLM branch only. Why: keep 128 GB unified-memory routing and repo workflow out of generic Gemma builds. Result: docs only; no runtime or model change.
