@@ -1,97 +1,83 @@
 """
-title: Auto Router (Gemma ⇄ Flash-Next)
-author: Pdl_Pwr
-version: 1.3.2
-description: One "Auto" model. Quick requests go to Gemma 4 26B-A4B, clearly complex ones to
-             Qwen3.8-Flash-Next (medium effort), both served by LM Studio.
-             Prefixes: /flash or /strong, /gemma or /fast, /deep (Flash at xhigh effort),
-             /route <text> (shows where <text> would go, without running it).
-             v1.3: escalates to Flash at xhigh on its own for explicit "think hard"-style
-             phrases (DEEP_PHRASES) or a very high complexity score (DEEP_SCORE).
+title: Auto Router (Gemma ⇄ Flash-Next) — M5 Max 128 GB
+author: ewagner (Pdl_Pwr)
+version: 1.2
+machine: Apple Silicon M5 Max, 128 GB unified memory
+description: One "Auto" model routing quick requests to Gemma 4 26B-A4B and heavy
+             requests to Qwen3.8-Flash-Next (88 GB GGUF) on an M5 Max Studio.
+             Tuned for mmap/sparse weights + wired RAM ~74 GB; DO NOT port to
+             other M-series Studios / generic Gemma 4 builds. See
+             m5/docs/M5_MAX_AUTO_ROUTER_POLICY.md
 requirements: httpx
 """
-
-# v1.3.2 changes (Oct 19 2026)
-# - Per-route max_tokens caps: STRONG_MAX_TOKENS (Flash, medium), DEEP_MAX_TOKENS (Flash, xhigh),
-#   FAST_MAX_TOKENS (Gemma); 0 = no cap. A max_tokens already in the request (chat Controls) wins.
-#   Why: effort level does not bound reasoning length; uncapped xhigh requests ran 10+ min.
-# - A reply cut off by the cap ends with a note saying so (a capped run may have no answer yet).
-# - /route also shows the cap that would apply.
-#
-# v1.3 changes (Oct 14 2026)
-# - DEEP_PHRASES: explicit asks for depth ("think carefully", "deep dive", ...) → Flash + [effort:xhigh].
-# - DEEP_SCORE: messages scoring this high (several strong signals at once) → Flash + [effort:xhigh].
-#   To turn automatic escalation off: DEEP_SCORE = 0 and DEEP_PHRASES = off (empty = built-in list).
-#
-# v1.2 changes (Oct 13 2026)
-# - Routing is a score instead of first-match: several weak signals must add up before Flash is used.
-# - Gemma is the default for chat, follow-ups, short snippets and simple lookups.
-# - LONG_CHAT_TURNS default 0: a long conversation alone no longer forces Flash.
-# - Code blocks count fully only when large or when the message asks to debug/fix/review/write code.
-# - Narrower task keywords; bare topic words (dns, vlan, tls...) no longer route to Flash.
-# - Short continuations ("continue", "yes", "go on") follow the previous answer's size.
-# - reasoning_effort is no longer sent (LM Studio ignores it, and if it ever passed it through it
-#   would override the template marker). /deep adds [effort:xhigh] to the system message instead.
-# - /route dry run; images never go to Flash unless STRONG_HAS_VISION is on.
-
 import json
 import re
 from typing import AsyncGenerator, Optional
-
 import httpx
 from pydantic import BaseModel, Field
-
-CONTINUATION_RE = re.compile(
-    r"^(continue|go on|keep going|carry on|do it|yes|yep|ok(ay)?|please do|proceed|next|more|finish|"
-    r"same|again|thanks|thank you)\b", re.I)
-TRIVIAL_RE = re.compile(
-    r"\b(translate|paraphrase|rewrite|reword|summari[sz]e|tl;?dr|what is|what's|who is|define|definition of|"
-    r"convert|spelling|grammar|typo|synonym)\b", re.I)
-CODE_INTENT_RE = re.compile(
-    r"\b(debug|fix|error|traceback|stack trace|refactor|review|optimi[sz]e|implement|write|complete|"
-    r"why does|doesn't work|does not work|fails?|failing|broken)\b", re.I)
-
-
-DEFAULT_DEEP_PHRASES = ("think hard, think harder, think carefully, think deeply, think it through, deep dive, "
-                    "in-depth, in depth, be thorough, rigorous, rigorously, "
-                    "check your work, verify your reasoning, take your time, leave no stone unturned")
 
 
 class Pipe:
     class Valves(BaseModel):
-        LMSTUDIO_URL: str = Field(default="http://localhost:1234/v1", description="LM Studio OpenAI-compatible base URL")
-        FAST_MODEL: str = Field(default="gemma-4-26b-a4b-it-qat", description="Quick model ID (as lms ps shows it)")
+        LMSTUDIO_URL: str = Field(
+            default="http://localhost:1234/v1",
+            description="LM Studio OpenAI-compatible base URL",
+        )
+        FAST_MODEL: str = Field(
+            default="gemma-4-26b-a4b-it-qat",
+            description="Quick model ID (as `lms ps` shows it)",
+        )
         STRONG_MODEL: str = Field(default="flash-next", description="Heavy model ID")
-        SCORE_THRESHOLD: int = Field(default=3, description="Score at or above this → Flash")
-        LENGTH_THRESHOLD: int = Field(default=1800, description="Last message longer than this (chars) adds 2; 3x longer adds 2 more")
+        LENGTH_THRESHOLD: int = Field(
+            default=1800,
+            description="M5: last message longer than this (chars) -> strong",
+        )
+        SCORE_THRESHOLD: int = Field(
+            default=3,
+            description="Heuristic score that triggers Flash-Next",
+        )
         KEYWORDS: str = Field(
-            default="root cause, troubleshoot, troubleshooting, traceback, stack trace, debug, refactor, optimize, "
-                    "architecture, design review, trade-off, tradeoff, harden, hardening, audit, compliance, "
-                    "threat model, derive, prove, proof, algorithm, implement, complete script, production script, "
-                    "write a script, review this, review my, step by step, step-by-step, dcf, irr, wacc, "
-                    "amortization, depreciation, roth conversion, monte carlo, network design, segmentation, isolation, "
-                    "migration plan, disaster recovery, failover, redundancy, capacity planning",
-            description="Comma-separated task phrases (whole-word match); one match adds 3",
+            default=(
+                "root cause, troubleshoot, traceback, stack trace, debug, refactor, optimize, "
+                "architecture, design review, trade-off, tradeoff, harden, audit, compliance, "
+                "threat model, benchmark, derive, prove, proof, algorithm, implement, "
+                "complete script, production script, write a script, review this, review code, "
+                "review config, review architecture, calculate dcf, calculate irr, "
+                "calculate wacc, calculate tax, calculate drawdown, calculate retirement, "
+                "forecast model, amortization, depreciation, vlan, acl, firewall, dns, sso, "
+                "saml, tls, certificate"
+            ),
+            description="Comma-separated phrases that score toward the strong model",
         )
-        IMAGES_TO_FAST: bool = Field(default=True, description="Messages with images go to the fast model (vision)")
-        STRONG_HAS_VISION: bool = Field(default=False, description="Allow images on Flash when forced with /flash or /deep")
-        LONG_CHAT_TURNS: int = Field(default=0, description="If > 0: conversations past this many turns add 1 for substantial messages")
-        USE_CLASSIFIER: bool = Field(default=False, description="Ambiguous messages: ask the fast model SIMPLE/COMPLEX (+~0.5 s)")
-        DEEP_PHRASES: Optional[str] = Field(
-            default=None,
-            description="Phrases (comma-separated) that send a message to Flash at xhigh. "
-                        "Empty = built-in list; type off to disable",
+        IMAGES_TO_FAST: bool = Field(
+            default=True,
+            description="Send messages with images to the fast model (vision)",
         )
-        DEEP_SCORE: int = Field(default=7, description="Score at or above this → Flash at xhigh (0 = off). Max score is 10-11")
-        DEEP_MARKER: str = Field(default="[effort:xhigh]", description="Added to the system message for /deep")
-        SHOW_ROUTE: bool = Field(default=True, description="Show which model answered, and why, above the reply")
-        STRONG_PARAMS: str = Field(default='{"temperature": 1.0, "top_p": 0.95, "top_k": 20, "min_p": 0.0}',
-                                   description="JSON sampling params for the strong model")
-        FAST_PARAMS: str = Field(default='{"temperature": 1.0, "top_p": 0.95, "top_k": 64}',
-                                 description="JSON sampling params for the fast model")
-        STRONG_MAX_TOKENS: int = Field(default=8192, description="max_tokens for Flash at medium effort (0 = no cap)")
-        DEEP_MAX_TOKENS: int = Field(default=24576, description="max_tokens for Flash at xhigh: /deep, deep phrases, DEEP_SCORE (0 = no cap)")
-        FAST_MAX_TOKENS: int = Field(default=0, description="max_tokens for Gemma (0 = no cap)")
+        LONG_CHAT_TURNS: int = Field(
+            default=0,
+            description="M5: turns -> strong (0 = off; long chats are follow-ups)",
+        )
+        USE_CLASSIFIER: bool = Field(
+            default=False,
+            description="If nothing matched, ask Gemma SIMPLE/COMPLEX (+~0.5 s)",
+        )
+        STRONG_REASONING_EFFORT: str = Field(
+            default="medium",
+            description="Flash-Next depth: low | medium | xhigh (blank = not sent)",
+        )
+        STRONG_MAX_TOKENS: int = Field(default=16384, description="Strong output budget")
+        FAST_MAX_TOKENS: int = Field(default=2048, description="Fast output budget")
+        SHOW_ROUTE: bool = Field(
+            default=True, description="Show which model answered and why"
+        )
+        STRONG_PARAMS: str = Field(
+            default='{"temperature": 0.6, "top_p": 0.95, "top_k": 20, "min_p": 0.0}',
+            description="JSON sampling params for the strong model",
+        )
+        FAST_PARAMS: str = Field(
+            default='{"temperature": 1.0, "top_p": 0.95, "top_k": 64}',
+            description="JSON sampling params for the fast model",
+        )
 
     def __init__(self):
         self.valves = self.Valves()
@@ -99,7 +85,6 @@ class Pipe:
     def pipes(self):
         return [{"id": "auto", "name": "Auto (Gemma ⇄ Flash)"}]
 
-    # ---------- helpers ----------
     @staticmethod
     def _text_and_images(content):
         if isinstance(content, str):
@@ -123,190 +108,192 @@ class Pipe:
                     part["text"] = new_text
                     break
 
-    def _keywords(self, field: str = "KEYWORDS"):
-        raw = getattr(self.valves, field) or ""
-        if field == "DEEP_PHRASES":
-            if raw.strip().lower() in ("off", "none", "-"):
-                return []
-            raw = raw.strip() or DEFAULT_DEEP_PHRASES
-        kws = [k.strip().lower() for k in raw.split(",") if k.strip()]
-        return [(k, re.compile(r"(?<![\w-])" + re.escape(k) + r"(?![\w-])", re.I)) for k in kws]
-
-    def _add_marker(self, messages):
-        marker = self.valves.DEEP_MARKER.strip()
-        if not marker:
-            return
-        if messages and messages[0].get("role") == "system" and isinstance(messages[0].get("content"), str):
-            if "[effort:" not in messages[0]["content"]:
-                messages[0]["content"] = messages[0]["content"].rstrip() + "\n" + marker
-        else:
-            messages.insert(0, {"role": "system", "content": marker})
-
     async def _classify(self, text: str) -> Optional[bool]:
-        prompt = ("Classify the user's request. Reply with exactly one word: SIMPLE if it is a quick fact, "
-                  "short answer, casual chat or light rewrite; COMPLEX if it needs multi-step reasoning, "
-                  "analysis, code, planning or careful accuracy.\n\nRequest:\n" + text[:2000])
+        prompt = (
+            "Classify the user's request. Reply with exactly one word: SIMPLE if it is a quick "
+            "fact, short answer, casual chat or light rewrite; COMPLEX if it needs multi-step "
+            "reasoning, analysis, code, planning or careful accuracy.\n\nRequest:\n" + text[:2000]
+        )
         try:
-            async with httpx.AsyncClient(timeout=15) as c:
-                r = await c.post(f"{self.valves.LMSTUDIO_URL.rstrip('/')}/chat/completions",
-                                 json={"model": self.valves.FAST_MODEL, "temperature": 0, "max_tokens": 8,
-                                       "messages": [{"role": "user", "content": prompt}]})
+            async with httpx.AsyncClient(timeout=httpx.Timeout(15.0, read=None)) as c:
+                r = await c.post(
+                    f"{self.valves.LMSTUDIO_URL.rstrip('/')}/chat/completions",
+                    json={
+                        "model": self.valves.FAST_MODEL,
+                        "temperature": 0,
+                        "max_tokens": 8,
+                        "messages": [{"role": "user", "content": prompt}],
+                    },
+                )
                 if r.status_code != 200:
                     return None
-                out = str(((r.json().get("choices") or [{}])[0].get("message") or {}).get("content") or "").upper()
+                data = r.json()
         except Exception:
             return None
+        out = str(
+            (data.get("choices") or [{}])[0].get("message", {}).get("content") or ""
+        ).upper()
         if "COMPLEX" in out:
             return True
         if "SIMPLE" in out:
             return False
         return None
 
-    # ---------- routing ----------
     async def route(self, messages) -> tuple:
-        """Returns (use_strong, deep, reason, dry_run). Strips control prefixes from the last user message."""
+        """Returns (use_strong: bool, reason: str). Strips /<model> prefixes."""
         users = [m for m in messages if m.get("role") == "user"]
         if not users:
-            return False, False, "no user message", False
+            return False, "no user message"
+
         last = users[-1]
         text, has_img = self._text_and_images(last.get("content"))
         stripped = text.lstrip()
 
-        m = re.match(r"^/route\b\s*", stripped, re.I)
+        m = re.match(r"^/(flash|gemma|strong|fast)\b\s*", stripped, re.I)
         if m:
             self._set_text(last, stripped[m.end():])
-            use_strong, deep, reason, _ = await self.route(messages)
-            return use_strong, deep, reason, True
-
-        m = re.match(r"^/(flash|strong|gemma|fast|deep)\b\s*", stripped, re.I)
-        if m:
-            cmd = m.group(1).lower()
-            self._set_text(last, stripped[m.end():])
-            if cmd in ("gemma", "fast"):
-                return False, False, f"forced with /{cmd}", False
-            if has_img and not self.valves.STRONG_HAS_VISION:
-                return False, False, f"/{cmd} ignored: image attached and Flash is text-only", False
-            return True, cmd == "deep", f"forced with /{cmd}", False
+            use_strong = m.group(1).lower() in ("flash", "strong")
+            return use_strong, f"forced with /{m.group(1).lower()}"
 
         if has_img and self.valves.IMAGES_TO_FAST:
-            return False, False, "image attached", False
+            return False, "image attached"
 
-        low = stripped.lower().strip()
+        text = stripped
+        low = text.lower().strip()
         if not low:
-            return False, False, "empty message", False
+            return False, "empty"
 
-        # Short continuation: follow the size of the previous answer.
-        if len(low) <= 60 and CONTINUATION_RE.match(low):
-            prev = next((msg for msg in reversed(messages) if msg.get("role") == "assistant"), None)
-            prev_text = self._text_and_images(prev.get("content"))[0] if prev else ""
-            if len(prev_text) > 1500:
-                return True, False, "continuation of a long answer", False
-            return False, False, "short continuation", False
+        last_idx = max(i for i, msg in enumerate(messages) if msg.get("role") == "user")
+        prev_text = ""
+        for msg in reversed(messages[:last_idx]):
+            if msg.get("role") == "assistant":
+                prev_text = self._text_and_images(msg.get("content"))[0]
+                break
+        if len(low) <= 80 and re.match(
+            r"^(continue|go on|keep going|do it|yes|please do|run|next|more|same|finish|output)\b",
+            low,
+        ):
+            if len(prev_text) > 1200:
+                return True, "continuation of complex answer"
+            return False, "short continuation"
 
         score, reasons = 0, []
-        if "```" in stripped:
-            if len(stripped) > 400 or CODE_INTENT_RE.search(stripped):
+        strong_re = re.compile(
+            r"\b(root cause|troubleshoot|debug|traceback|stack trace|architecture|design review|"
+            r"harden|audit|compliance|threat model|benchmark|optimize|refactor|implement|derive|"
+            r"prove|proof|algorithm|complete script|production script|write a script|review "
+            r"(this|code|script|config|architecture)|vlan|acl|firewall|dns|sso|saml|tls|"
+            r"certificate)\b",
+            re.I,
+        )
+        if "```" in text:
+            if len(text) > 400 or re.search(
+                r"\b(code|script|function|class|regex|json|yaml|bash|zsh|python|shell|error|"
+                r"traceback|stack trace|debug|fix|refactor|review|optimize|implement|config|log)\b",
+                low,
+            ):
                 score += 3
-                reasons.append("code task")
+                reasons.append("code block/code task")
             else:
                 score += 1
-                reasons.append("small code snippet")
-        n = len(stripped)
-        if n > self.valves.LENGTH_THRESHOLD:
+                reasons.append("small code block")
+        if len(text) > self.valves.LENGTH_THRESHOLD:
             score += 2
-            reasons.append(f"long message ({n} chars)")
-            if n > 3 * self.valves.LENGTH_THRESHOLD:
+            reasons.append(f"long message ({len(text)} chars)")
+        if strong_re.search(text):
+            score += 3
+            reasons.append("complex task")
+        for kw in [k.strip().lower() for k in self.valves.KEYWORDS.split(",") if k.strip()]:
+            if kw and kw in low:
                 score += 2
-                reasons.append("very long")
-        for kw, rx in self._keywords():
-            if rx.search(stripped):
-                score += 3
-                reasons.append(f'"{kw}"')
+                reasons.append(f'keyword "{kw}"')
                 break
-        if self.valves.LONG_CHAT_TURNS and len(users) > self.valves.LONG_CHAT_TURNS and n > 220:
-            score += 1
-            reasons.append(f"long conversation ({len(users)} turns)")
+        trivial_re = re.compile(
+            r"\b(translate|paraphrase|rewrite|summarize|tl;dr|brief|short|what is|who is|"
+            r"definition of|list|convert|format|spelling|grammar|fix typo|fix grammar)\b",
+            re.I,
+        )
+        if len(text) < 220 and trivial_re.search(text) and score < 3:
+            return False, "simple short request"
+        if self.valves.LONG_CHAT_TURNS and len(users) > self.valves.LONG_CHAT_TURNS:
+            if len(text) > 220 or strong_re.search(text):
+                score += 2
+                reasons.append("long conversation + substantial turn")
 
-        for kw, rx in self._keywords("DEEP_PHRASES"):
-            if rx.search(stripped):
-                return True, True, f'deep: asked for depth ("{kw}")' + (f"; score {score}" if score else ""), False
-        if self.valves.DEEP_SCORE and score >= self.valves.DEEP_SCORE:
-            return True, True, f"deep: score {score}: " + ", ".join(reasons), False
-
-        if n < 220 and score < self.valves.SCORE_THRESHOLD and TRIVIAL_RE.search(stripped):
-            return False, False, "simple short request", False
         if score >= self.valves.SCORE_THRESHOLD:
-            return True, False, f"score {score}: " + ", ".join(reasons), False
-
-        if self.valves.USE_CLASSIFIER and 60 <= n <= 2200:
-            verdict = await self._classify(stripped)
+            return True, "; ".join(dict.fromkeys(reasons))
+        if self.valves.USE_CLASSIFIER and 60 <= len(text) <= 2200:
+            verdict = await self._classify(text)
+            if verdict:
+                return True, "classifier: complex"
             if verdict is not None:
-                return verdict, False, "classifier: " + ("complex" if verdict else "simple"), False
-        return False, False, f"score {score}" + (": " + ", ".join(reasons) if reasons else "") + " (quick)", False
+                return False, "classifier: simple"
+        return False, "default (quick)"
 
-    # ---------- forwarding ----------
-    def _cap(self, use_strong: bool, deep: bool, body: dict):
-        """max_tokens for this route: request value first, then the route's valve; None = no cap."""
-        try:
-            if body.get("max_tokens"):
-                return int(body["max_tokens"]), "chat setting"
-        except (TypeError, ValueError):
-            pass
-        cap = (self.valves.DEEP_MAX_TOKENS if deep else self.valves.STRONG_MAX_TOKENS) if use_strong \
-            else self.valves.FAST_MAX_TOKENS
-        return (cap, "valve") if cap and cap > 0 else (None, None)
-
-    @staticmethod
-    def _cap_note(cap):
-        return f"\n\n*(Stopped at the {cap:,}-token cap; the answer may be missing or incomplete.)*"
-
-    async def pipe(self, body: dict, __event_emitter__=None):
+    async def pipe(self, body: dict, __event_emitter__=None) -> AsyncGenerator:
         messages = [dict(m) for m in body.get("messages", [])]
-        use_strong, deep, reason, dry_run = await self.route(messages)
-        label = ("Flash-Next (xhigh)" if deep else "Flash-Next") if use_strong else "Gemma"
-
-        cap, cap_src = self._cap(use_strong, deep, body)
-        cap_txt = f"cap {cap:,} tokens ({cap_src})" if cap else "no token cap"
-
-        if dry_run:
-            return f"**Route test:** this message would go to **{label}**: {reason}; {cap_txt}."
-
+        use_strong, reason = await self.route(messages)
         model = self.valves.STRONG_MODEL if use_strong else self.valves.FAST_MODEL
-        if deep:
-            self._add_marker(messages)
-
+        label = "Flash-Next" if use_strong else "Gemma"
         if __event_emitter__ and self.valves.SHOW_ROUTE:
-            await __event_emitter__({"type": "status",
-                                     "data": {"description": f"→ {label} ({reason}; {cap_txt})", "done": True}})
-
+            await __event_emitter__(
+                {"type": "status", "data": {"description": f"→ {label} ({reason})", "done": True}}
+            )
         try:
-            params = json.loads(self.valves.STRONG_PARAMS if use_strong else self.valves.FAST_PARAMS)
+            params = json.loads(
+                self.valves.STRONG_PARAMS if use_strong else self.valves.FAST_PARAMS
+            )
         except json.JSONDecodeError:
             params = {}
-        payload = {"model": model, "messages": messages, "stream": bool(body.get("stream", True)), **params}
-        if cap:
-            payload["max_tokens"] = cap
-        url = f"{self.valves.LMSTUDIO_URL.rstrip('/')}/chat/completions"
+        max_tokens = int(
+            body.get("max_tokens")
+            or (self.valves.STRONG_MAX_TOKENS if use_strong else self.valves.FAST_MAX_TOKENS)
+        )
+        payload = {
+            "model": model,
+            "messages": messages,
+            "stream": bool(body.get("stream", True)),
+            "max_tokens": max_tokens,
+            **params,
+        }
+        effort = self.valves.STRONG_REASONING_EFFORT.strip().lower()
+        if use_strong and effort:
+            payload["reasoning_effort"] = effort
+            payload["chat_template_kwargs"] = {"reasoning_effort": effort}
 
+        url = f"{self.valves.LMSTUDIO_URL.rstrip('/')}/chat/completions"
         if not payload["stream"]:
-            async with httpx.AsyncClient(timeout=None) as c:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(15.0, read=None)) as c:
                 r = await c.post(url, json=payload)
+                if r.status_code != 200 and effort:
+                    clean = {
+                        k: v
+                        for k, v in payload.items()
+                        if k not in ("reasoning_effort", "chat_template_kwargs")
+                    }
+                    r = await c.post(url, json=clean)
                 if r.status_code != 200:
                     return f"**Router error {r.status_code} from {model}:** {r.text[:400]}"
-                choice = (r.json().get("choices") or [{}])[0]
-                msg = choice.get("message") or {}
+                msg = r.json()["choices"][0]["message"]
                 think = msg.get("reasoning_content") or msg.get("reasoning")
-                note = self._cap_note(payload["max_tokens"]) \
-                    if choice.get("finish_reason") == "length" and payload.get("max_tokens") else ""
-                return (f"<think>{think}</think>\n" if think else "") + (msg.get("content") or "") + note
-
+                return (f"<think>{think}</think>\n" if think else "") + (msg.get("content") or "")
         return self._stream(url, payload, model)
 
-    async def _stream(self, url, payload, model) -> AsyncGenerator:
+    async def _stream(self, url, payload, model):
         in_think = False
-        finish = None
-        async with httpx.AsyncClient(timeout=None) as c:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(15.0, read=None)) as c:
             async with c.stream("POST", url, json=payload) as r:
+                if r.status_code == 400 and (
+                    "reasoning_effort" in payload or "chat_template_kwargs" in payload
+                ):
+                    payload = {
+                        k: v
+                        for k, v in payload.items()
+                        if k not in ("reasoning_effort", "chat_template_kwargs")
+                    }
+                    async for chunk in self._stream(url, payload, model):
+                        yield chunk
+                    return
                 if r.status_code != 200:
                     err = (await r.aread()).decode("utf-8", "ignore")[:400]
                     yield f"**Router error {r.status_code} from {model}:** {err}\n\n(Is it loaded? `lms ps`)"
@@ -318,11 +305,9 @@ class Pipe:
                     if data == "[DONE]":
                         break
                     try:
-                        choice = (json.loads(data).get("choices") or [{}])[0]
-                        delta = choice.get("delta") or {}
-                    except (json.JSONDecodeError, IndexError, AttributeError):
+                        delta = (json.loads(data).get("choices") or [{}])[0].get("delta") or {}
+                    except (json.JSONDecodeError, IndexError):
                         continue
-                    finish = choice.get("finish_reason") or finish
                     think = delta.get("reasoning_content") or delta.get("reasoning")
                     if think:
                         if not in_think:
@@ -337,5 +322,3 @@ class Pipe:
                         yield content
         if in_think:
             yield "</think>\n"
-        if finish == "length" and payload.get("max_tokens"):
-            yield self._cap_note(payload["max_tokens"])
