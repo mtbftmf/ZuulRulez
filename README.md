@@ -129,6 +129,9 @@ Token caps (v1.3.2): Auto builds its own request to LM Studio, so persona `max_t
 | `m5/bin/` | Scripts linked into `~/bin` by `install.sh` |
 | `m5/launchd/` | Login LaunchAgent template (rendered to `com.$USER.flash-up`) |
 | `m5/openwebui/` | Open WebUI functions (router, filter) |
+| `m5/scripts/` | Optional helpers sourced by `m5/bin` scripts (`raid-guard.sh`; M5 Max only, off by default) |
+| `m5/config/` | Env templates; copy to `~/.config/` and fill in (never commit the filled-in file) |
+| `m5/docs/` | Host-specific notes (external RAID0 tiering, M5 Max only) |
 | `m5/templates/` | Stock and edited Flash-Next chat templates |
 | `m1/` | Gemma-only installer and scripts for a 32 GB M1 Max Studio |
 | `docs/images/` | Diagram and efficiency chart |
