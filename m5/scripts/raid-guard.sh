@@ -6,6 +6,7 @@
 # Flash, Gemma, the LM Studio config and the Open WebUI DB stay on internal storage;
 # this script never touches them. If the volume is missing, the link is removed so
 # LM Studio never sees a dangling path.
+# After sourcing, RAID_GUARD_RC holds the result; sourcing itself always succeeds.
 # Settings come from ~/.config/lmstudio-raid.env (not committed). Default: disabled.
 
 _raid_sourced=0
@@ -76,4 +77,6 @@ raid_guard() {
   return 1
 }
 
+# Always return 0 when sourced; the outcome is in RAID_GUARD_RC (0 = volume up or disabled, 1 = unavailable).
 raid_guard
+RAID_GUARD_RC=$?

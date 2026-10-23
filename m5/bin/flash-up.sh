@@ -2,7 +2,11 @@
 # flash-up.sh — start LM Studio's server, load the router + Flash-Next workhorse, then start Open WebUI.
 # Run: ~/bin/flash-up.sh   (prompts for your password once, for launchctl)
 set -euo pipefail
-source "$HOME/ZuulRulez/m5/scripts/raid-guard.sh" || true
+echo "$(date '+%F %T') flash-up start"
+set +eu
+source "$HOME/ZuulRulez/m5/scripts/raid-guard.sh"
+set -eu
+echo "$(date '+%F %T') raid guard done (rc=${RAID_GUARD_RC:-n/a})"
 
 # ---------- CONFIG ----------
 LMS="${LMS:-$HOME/.lmstudio/bin/lms}"   # LM Studio CLI
@@ -57,7 +61,8 @@ load_retry load "$FLASH_KEY" --gpu max --context-length "$FLASH_CTX" \
 
 # Start Open WebUI after the models are up, so it sees them on first model refresh.
 if [[ -n "$OWUI_LABEL" ]]; then
-  if sudo launchctl print "system/$OWUI_LABEL" >/dev/null 2>&1; then
+  # Without a terminal (LaunchAgent at login) sudo cannot prompt; the daemon starts itself at boot (RunAtLoad).
+  if [[ ! -t 0 ]] || sudo launchctl print "system/$OWUI_LABEL" >/dev/null 2>&1; then
     echo "→ Open WebUI already running ($OWUI_LABEL)"
   else
     echo "→ Starting Open WebUI ($OWUI_LABEL)"
