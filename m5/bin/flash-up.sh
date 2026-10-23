@@ -89,3 +89,11 @@ echo "→ Loaded models:"
 echo "→ API model IDs:"
 curl -fsS "http://localhost:$PORT/v1/models" | grep -o '"id": *"[^"]*"' || true
 top -l 1 -s 0 | grep PhysMem || true
+
+# Second attempt: the TB5 volume can take longer than RAID_TIMEOUT to appear after boot, and the
+# models above do not depend on it. No-op if the first attempt already linked it.
+echo "$(date '+%F %T') raid guard retry"
+set +eu
+source "$HOME/ZuulRulez/m5/scripts/raid-guard.sh"
+set -eu
+echo "$(date '+%F %T') raid guard retry done (rc=${RAID_GUARD_RC:-n/a})"
