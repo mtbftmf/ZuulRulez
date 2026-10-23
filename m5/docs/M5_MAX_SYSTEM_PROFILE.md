@@ -39,7 +39,7 @@ Current as of 2026-10-23. Dated history is in `CHANGELOG.md`.
 - Effort is a nudge, not a budget (Oct 18-19 probes): reasoning length is nearly flat
   across levels on easy and medium prompts, and on a hard prompt every level ran
   ~10 min. `[effort:low]` buys no speed.
-- `max_tokens` is the real time limit. Auto Router v1.3.2 caps: Flash medium 8192,
+- `max_tokens` is the real time limit. Auto Router v1.3.3 caps: Flash medium 8192,
   Flash xhigh 24576, Gemma none. Persona caps for Flash personas picked directly are
   suggested in the README but not yet applied.
 

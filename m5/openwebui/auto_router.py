@@ -1,16 +1,26 @@
 """
 title: Auto Router (Gemma ⇄ Flash-Next)
 author: Pdl_Pwr
-version: 1.3.2
+version: 1.3.3
 description: One "Auto" model. Quick requests go to Gemma 4 26B-A4B, clearly complex ones to
              Qwen3.8-Flash-Next (medium effort), both served by LM Studio.
              Prefixes: /flash or /strong, /gemma or /fast, /deep (Flash at xhigh effort),
              /route <text> (shows where <text> would go, without running it).
              v1.3: escalates to Flash at xhigh on its own for explicit "think hard"-style
              phrases (DEEP_PHRASES) or a very high complexity score (DEEP_SCORE).
+             v1.3.3: conversations too big for Gemma's context go to Flash.
 requirements: httpx
 """
 
+# v1.3.3 changes (Oct 23 2026)
+# - Context guard: Flash is loaded at 128K, Gemma at 32K. Before sending to Gemma, the whole request
+#   (system prompt, history, images) is estimated in tokens. Over FAST_CTX - FAST_CTX_RESERVE:
+#   - normally → Flash instead ("conversation ~N tokens, over Gemma's 32,768 context");
+#   - when Gemma is required (image attached, or /gemma or /fast) → the oldest messages after the
+#     system prompt are dropped until it fits, and the route note says how many.
+#   Estimate = characters / CHARS_PER_TOKEN + IMAGE_TOKENS per image + 8 per message (cautious).
+#   FAST_CTX = 0 turns the guard off.
+#
 # v1.3.2 changes (Oct 19 2026)
 # - Per-route max_tokens caps: STRONG_MAX_TOKENS (Flash, medium), DEEP_MAX_TOKENS (Flash, xhigh),
 #   FAST_MAX_TOKENS (Gemma); 0 = no cap. A max_tokens already in the request (chat Controls) wins.
@@ -92,6 +102,10 @@ class Pipe:
         STRONG_MAX_TOKENS: int = Field(default=8192, description="max_tokens for Flash at medium effort (0 = no cap)")
         DEEP_MAX_TOKENS: int = Field(default=24576, description="max_tokens for Flash at xhigh: /deep, deep phrases, DEEP_SCORE (0 = no cap)")
         FAST_MAX_TOKENS: int = Field(default=0, description="max_tokens for Gemma (0 = no cap)")
+        FAST_CTX: int = Field(default=32768, description="Gemma's loaded context (CONTEXT in lms ps). Bigger requests go to Flash (0 = no check)")
+        FAST_CTX_RESERVE: int = Field(default=4096, description="Tokens kept free in Gemma's context for its reply")
+        CHARS_PER_TOKEN: float = Field(default=3.0, description="Token estimate: characters per token (lower = more cautious)")
+        IMAGE_TOKENS: int = Field(default=1100, description="Token estimate per attached image")
 
     def __init__(self):
         self.valves = self.Valves()
@@ -162,9 +176,68 @@ class Pipe:
             return False
         return None
 
+    # ---------- context guard ----------
+    def _estimate_tokens(self, messages) -> int:
+        chars, imgs = 0, 0
+        for msg in messages:
+            content = msg.get("content")
+            if isinstance(content, str):
+                chars += len(content)
+                continue
+            for part in content or []:
+                if isinstance(part, dict):
+                    if part.get("type") == "text":
+                        chars += len(part.get("text") or "")
+                    elif part.get("type") in ("image_url", "image"):
+                        imgs += 1
+        per = self.valves.CHARS_PER_TOKEN if self.valves.CHARS_PER_TOKEN > 0 else 3.0
+        return int(chars / per) + imgs * max(self.valves.IMAGE_TOKENS, 0) + 8 * len(messages)
+
+    def _trim_to_fit(self, messages, limit: int) -> int:
+        """Drop the oldest messages after the system prompt until the estimate fits; keeps the last message."""
+        head = 0
+        while head < len(messages) and messages[head].get("role") == "system":
+            head += 1
+        dropped = 0
+        while len(messages) - head > 1 and self._estimate_tokens(messages) > limit:
+            del messages[head]
+            dropped += 1
+        while len(messages) - head > 1 and messages[head].get("role") != "user":
+            del messages[head]
+            dropped += 1
+        return dropped
+
+    def _fit_fast(self, messages, reason: str, must_fast: bool) -> tuple:
+        """Gemma route only. Returns (use_strong, reason); may trim messages in place."""
+        ctx = self.valves.FAST_CTX
+        if not ctx or ctx <= 0:
+            return False, reason
+        limit = max(ctx - max(self.valves.FAST_CTX_RESERVE, 0), 1024)
+        est = self._estimate_tokens(messages)
+        if est <= limit:
+            return False, reason
+        if not must_fast:
+            return True, f"conversation ~{est:,} tokens, over Gemma's {ctx:,} context (was: {reason})"
+        dropped = self._trim_to_fit(messages, limit)
+        note = f"; dropped the {dropped} oldest message(s) to fit Gemma's {ctx:,} context" if dropped else ""
+        left = self._estimate_tokens(messages)
+        if left > limit:
+            note += f"; still ~{left:,} tokens, may not fit"
+        return False, reason + note
+
     # ---------- routing ----------
     async def route(self, messages) -> tuple:
-        """Returns (use_strong, deep, reason, dry_run). Strips control prefixes from the last user message."""
+        """Returns (use_strong, deep, reason, dry_run). Strips control prefixes from the last user message.
+        A Gemma route that would overflow Gemma's context goes to Flash, or is trimmed when Gemma is required."""
+        users = [m for m in messages if m.get("role") == "user"]
+        text, has_img = self._text_and_images(users[-1].get("content")) if users else ("", False)
+        forced_fast = bool(re.match(r"^(/route\b\s*)?/(gemma|fast)\b", text.lstrip(), re.I))
+        use_strong, deep, reason, dry_run = await self._route(messages)
+        if not use_strong:
+            use_strong, reason = self._fit_fast(messages, reason, must_fast=has_img or forced_fast)
+        return use_strong, deep, reason, dry_run
+
+    async def _route(self, messages) -> tuple:
         users = [m for m in messages if m.get("role") == "user"]
         if not users:
             return False, False, "no user message", False
@@ -175,7 +248,7 @@ class Pipe:
         m = re.match(r"^/route\b\s*", stripped, re.I)
         if m:
             self._set_text(last, stripped[m.end():])
-            use_strong, deep, reason, _ = await self.route(messages)
+            use_strong, deep, reason, _ = await self._route(messages)
             return use_strong, deep, reason, True
 
         m = re.match(r"^/(flash|strong|gemma|fast|deep)\b\s*", stripped, re.I)

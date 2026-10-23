@@ -49,13 +49,16 @@ M-series Studios using a houdini account for friends and family hosting.
 - LENGTH_THRESHOLD should be 1800 or higher for this machine.
 - LONG_CHAT_TURNS should be off by default, or at most 25 with complexity scoring.
 - Small code fences must not force Flash-Next by themselves.
-- Router version: v1.3.2. Do not deploy v1.2 (d01095e): it drops the deep route and caps.
+- Router version: v1.3.3. Do not deploy v1.2 (d01095e): it drops the deep route and caps.
 - Effort comes from the template, not the request: medium by default, [effort:xhigh] for
   /deep, DEEP_PHRASES or DEEP_SCORE. The router never sends reasoning_effort.
 - [effort:low] buys no measurable speed; xhigh is a nudge, not a guarantee (Oct 18-19 probes).
 - Token caps when the request has none: STRONG_MAX_TOKENS 8192 (Flash medium),
   DEEP_MAX_TOKENS 24576 (Flash xhigh), FAST_MAX_TOKENS 0 (Gemma, no cap).
   A max_tokens already in the request wins. These caps are the real time limit.
+- Context guard (v1.3.3): FAST_CTX must match Gemma's loaded context (32768). Requests
+  estimated over FAST_CTX - FAST_CTX_RESERVE go to Flash; image or /gemma requests are trimmed
+  (oldest messages first) instead.
 - Exact reimbursement, retirement, tax, DCF, IRR, WACC, drawdown, depreciation,
   and line-item arithmetic must be computed in code.
 

@@ -82,7 +82,7 @@ Suggested `max_tokens` (Open WebUI → persona → Advanced Params):
 
 Persona caps are not set yet. Auto ignores persona settings and uses its own valves (see Auto Router).
 
-## Auto Router (`m5/openwebui/auto_router.py`, v1.3.2)
+## Auto Router (`m5/openwebui/auto_router.py`, v1.3.3)
 
 Paste into Open WebUI → Admin → Functions. Routing, first match wins:
 
@@ -91,6 +91,8 @@ Paste into Open WebUI → Admin → Functions. Routing, first match wins:
 3. Short continuation ("continue", "yes") → Flash if the previous answer was long, else Gemma.
 4. Depth phrase or score ≥ 7 → Flash (xhigh); score ≥ 3 → Flash (medium). Scoring: +3 code task, +3 task phrase (troubleshoot, root cause, audit, WACC…), +2 over 1,800 chars, +2 more over 5,400.
 5. Otherwise → Gemma.
+
+Context guard (v1.3.3): Gemma is loaded at 32K, Flash at 128K. A Gemma route whose whole request (system prompt, history, images) is estimated over `FAST_CTX` − `FAST_CTX_RESERVE` (32,768 − 4,096) goes to Flash instead. When Gemma is required (image attached, or `/gemma`), the oldest messages are dropped until it fits and the status line says so. Estimate: characters ÷ 3 + 1,100 per image. Set `FAST_CTX` to whatever `lms ps` shows for Gemma; 0 turns the guard off.
 
 The router never sends `reasoning_effort`. Thresholds and phrase lists are valves.
 
