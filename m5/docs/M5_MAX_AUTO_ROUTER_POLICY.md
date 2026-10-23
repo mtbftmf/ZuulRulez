@@ -43,14 +43,19 @@ M-series Studios using a houdini account for friends and family hosting.
 - Explicit overrides:
   - /gemma or /fast forces Gemma.
   - /flash or /strong forces Flash-Next.
+  - /deep forces Flash-Next with [effort:xhigh] in the system message.
+  - /route <text> reports the route and token cap without running it.
 - Images go to Gemma unless a vision-capable Flash-Next profile is loaded.
 - LENGTH_THRESHOLD should be 1800 or higher for this machine.
 - LONG_CHAT_TURNS should be off by default, or at most 25 with complexity scoring.
 - Small code fences must not force Flash-Next by themselves.
-- STRONG_REASONING_EFFORT default: medium.
-- Use low for simple Flash-Next tasks.
-- Use xhigh only for formal proofs, complex financial models, or deep architecture reviews.
-- Default max_tokens when omitted: 2048 for fast model, 16384 for strong model.
+- Router version: v1.3.2. Do not deploy v1.2 (d01095e): it drops the deep route and caps.
+- Effort comes from the template, not the request: medium by default, [effort:xhigh] for
+  /deep, DEEP_PHRASES or DEEP_SCORE. The router never sends reasoning_effort.
+- [effort:low] buys no measurable speed; xhigh is a nudge, not a guarantee (Oct 18-19 probes).
+- Token caps when the request has none: STRONG_MAX_TOKENS 8192 (Flash medium),
+  DEEP_MAX_TOKENS 24576 (Flash xhigh), FAST_MAX_TOKENS 0 (Gemma, no cap).
+  A max_tokens already in the request wins. These caps are the real time limit.
 - Exact reimbursement, retirement, tax, DCF, IRR, WACC, drawdown, depreciation,
   and line-item arithmetic must be computed in code.
 
@@ -58,7 +63,8 @@ M-series Studios using a houdini account for friends and family hosting.
 
 - Flash-Next is expensive to route on this machine.
 - Wired RAM is expected to stay near or below roughly 74 GB under normal use.
-- Keep Flash-Next context normally 8k-16k unless intentionally analyzing long documents or logs.
+- Flash-Next loads at 32K and the 4 parallel slots share it; keep single prompts well under
+  32K. Repeated long prefixes are cheap (prefix cache: 12.9 s -> 0.05 s TTFT at 11.9K).
 - Monitor with lms ps, memory_pressure, and sysctl vm.swapusage.
 - Use caffeinate only during deliberate long generation sessions.
 - Do not bake aggressive Metal wired-limit values into generic builds.
