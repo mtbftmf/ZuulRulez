@@ -17,18 +17,18 @@ Current as of 2026-10-23. Dated history is in `CHANGELOG.md`.
 | Server | `localhost:1234` only, JIT loading off |
 | Storage | Internal drive. Never on the external RAID0 (88 GB is memory-mapped; the stripe has no redundancy) |
 
-## Load settings (`flash-up.sh`: `--gpu max --context-length 32768`)
+## Load settings (`flash-up.sh`: `--gpu max --context-length 131072`)
 
 | Setting | Value | Status |
 | --- | --- | --- |
-| Context | 32K | Parallel slots share the full 32K; a 17.8K-token prompt passed at parallel 4 (Oct 18) |
+| Context | 128K (native max 256K) | Raised from 32K Oct 23. Parallel slots share the full context; a 100.9K-token prompt ran at 41.0 tok/s decode. Gemma stays at 32K: at 128K, LM Studio's load guardrail refuses Flash (it counts all 88 GB as resident) |
 | GPU offload | Full | |
 | Parallel | 4 | |
 | mmap | On | Per-layer embeddings (35.8 GB) stay mostly on SSD |
 | Keep in Memory | Off | Turn on first if decode jitters under memory pressure |
 | Chat template box | Default | Template lives in GGUF shard 1 (see below) |
 | Flash attention | Runtime default, not recorded | Not measured yet: compare `llm-probe.py --suite ctx` with it on and off |
-| KV cache quantization | Runtime default (unquantized) | Leave it: the KV cache is only ~0.75 GB at 32K |
+| KV cache quantization | Runtime default (unquantized) | Leave it: the KV cache is only ~3 GB at 128K |
 | Speculative decoding | None | Dropped Oct 16: no MTP or draft tensors in this GGUF, and MoE + hybrid attention make a draft model unlikely to help |
 
 ## Reasoning effort
@@ -51,6 +51,7 @@ Current as of 2026-10-23. Dated history is in `CHANGELOG.md`.
 | Prefill @ 7.8K | 934 tok/s (was 942) |
 | Time to first token | 257 ms |
 | Decode generating to 28K | 45.8-46.3 tok/s |
+| Decode @ 100.9K-token prompt (128K context) | 41.0 tok/s; prefill 867 tok/s, TTFT 116 s |
 | Prefix cache, 11.9K-token prompt repeated | TTFT 12.9 s -> 0.05 s |
 | Both models busy (Gemma vision + Flash) | Flash 28.7 tok/s, Gemma 62.1 tok/s |
 
@@ -62,7 +63,7 @@ Current as of 2026-10-23. Dated history is in `CHANGELOG.md`.
 | Gemma 4 26B-A4B QAT | 13.4 GB (100%) | 9.8 GB |
 
 Flash weights: experts 47.2 GB, per-layer embeddings 35.8 GB (sparse lookup, mostly on
-SSD), attention 1.5 GB, the rest under 1 GB each. KV cache ~0.75 GB at 32K, linear-attention
+SSD), attention 1.5 GB, the rest under 1 GB each. KV cache ~0.75 GB at 32K (~3 GB at 128K), linear-attention
 state not included. Resident size moves with mmap paging; peak wired with both models
 generating was 75.8 GB, no swap.
 

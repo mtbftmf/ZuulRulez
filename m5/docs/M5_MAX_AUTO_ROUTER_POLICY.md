@@ -63,8 +63,8 @@ M-series Studios using a houdini account for friends and family hosting.
 
 - Flash-Next is expensive to route on this machine.
 - Wired RAM is expected to stay near or below roughly 74 GB under normal use.
-- Flash-Next loads at 32K and the 4 parallel slots share it; keep single prompts well under
-  32K. Repeated long prefixes are cheap (prefix cache: 12.9 s -> 0.05 s TTFT at 11.9K).
+- Flash-Next loads at 128K and Gemma at 32K; the 4 parallel slots of each share its context.
+  A full 128K prompt takes ~2 min to read (867 tok/s at 100K). Repeated long prefixes are cheap (prefix cache: 12.9 s -> 0.05 s TTFT at 11.9K).
 - Monitor with lms ps, memory_pressure, and sysctl vm.swapusage.
 - Use caffeinate only during deliberate long generation sessions.
 - Do not bake aggressive Metal wired-limit values into generic builds.

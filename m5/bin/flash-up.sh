@@ -21,7 +21,7 @@ FLASH_ID="${FLASH_ID:-flash-next}"
 # Leave ROUTER_ID empty to keep the router's current ID (so existing Open WebUI models keep working).
 ROUTER_ID="${ROUTER_ID:-}"
 
-FLASH_CTX="${FLASH_CTX:-32768}"
+FLASH_CTX="${FLASH_CTX:-131072}"
 ROUTER_CTX="${ROUTER_CTX:-32768}"
 
 # Open WebUI launchd daemon. Set OWUI_LABEL="" to skip starting it.

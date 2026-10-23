@@ -11,7 +11,7 @@ Local LLM setup that runs two models side by side in LM Studio behind Open WebUI
 | Hardware | Mac Studio M5 Max (18 CPU / 40 GPU), 128 GB, 1 TB, macOS 27.0.1 |
 | Workhorse | `flash-next` = AtomicChat `Qwen3.8-Flash-Next-AD-4.27bpw-Q4_K_M-M64` (33-shard GGUF, 88 GB of weights) |
 | Router / vision / tasks | `gemma-4-26b-a4b-it-qat` (13.4 GB) |
-| Load settings | 32K context, GPU max, parallel 4, mmap on (Flash: Keep in Memory off) |
+| Load settings | Context: Flash 128K, Gemma 32K (both support 256K); GPU max, parallel 4, mmap on (Flash: Keep in Memory off) |
 | Server | LM Studio on `localhost:1234` only; no LAN binding, no CORS, JIT off |
 | Front end | Open WebUI 0.12, launchd daemon on `:8080`, data in `~/open-webui-data` |
 | GPU wired limit | macOS default (`iogpu.wired_limit_mb` = 0, ~96 GB) |
