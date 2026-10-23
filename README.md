@@ -151,3 +151,5 @@ Model weights, `~/open-webui-data`, Open WebUI exports or backups (they contain 
 - Open WebUI valves: click "Custom" to flip a valve back to Default; saved valve values survive a function code update.
 - launchctl: wait ~5 s after `bootout` before `bootstrap`.
 - Folders: `~/ZuulRulez` stays on MacLLM (`~/bin` links point into it; never `git checkout` there). Monitor work goes in `~/ZuulRulez-monitor` (git worktree).
+- Rewriting a GGUF chat template (`gguf-set-template.py`): `gguf-template.py` prints a `=====` banner line before the template; strip it before writing the file back, or it is rendered into every prompt. LM Studio then keeps using the old template until `~/.lmstudio/.internal/gguf-metadata-cache.json` and `model-index-cache.json` are deleted (run `flash-down.sh` first, `flash-up.sh` after; both are rebuilt on rescan). LM Studio's template parser also rejects `\x` escapes (e.g. `replace("\x00", "")`).
+- A GGUF that fails with "unknown model architecture" needs a newer llama.cpp runtime: `lms runtime update`. Older runtimes stay installed; roll back with `lms runtime select`. Re-run `llm-bench.py` for both models after a runtime change.
