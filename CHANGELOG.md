@@ -2,6 +2,9 @@
 
 Newest first. Entries before Oct 16, 2026 were reconstructed from chat history.
 
+## 2026-10-24
+- `llm-bench.py` v2: `--label` and a saved history (`~/llm-bench-history.jsonl`, `--history` lists it); each run is compared with the last one of the same model, label and machine, and drops over `--regress-pct` (default 7%) are flagged; `--vs LABEL` compares with another label for A/B tests. New `--sweep N,N` (prefill and decode at several depths), `--streams N` (simultaneous requests), and reasoning vs answer tokens on the gen test. Default run unchanged apart from the summary line now starting `llm-bench v2`. Why: compare runs across runtime, setting and model changes without copying numbers by hand; the sweep is what the flash-attention test needs. Result: tested against a mock server (sweep, streams, comparison, history, error path); not yet run on the Mac.
+
 ## 2026-10-23
 - Auto Router v1.3.3 deployed in Open WebUI and verified. Why: confirm the context guard before relying on it. Result: with `FAST_CTX` set to 2000, `/route thanks, what about VLANs?` went to Flash (~1,659 estimated tokens over the 1,024 floor left after the 4,096 reserve); `FAST_CTX` restored to 32768. Open WebUI Flash-Next memory updated: Flash 128K, Gemma 32K, v1.3.3 guard.
 - Auto Router v1.3.3: context guard. A Gemma route estimated over 28,672 tokens (`FAST_CTX` 32768 − `FAST_CTX_RESERVE` 4096; chars ÷ 3 + 1,100 per image) goes to Flash; image or `/gemma` requests drop the oldest messages to fit instead. Why: with Flash at 128K, a short follow-up in a long chat could score low and overflow Gemma's 32K. Result: offline test, 18-message ~213K-token chat routes to Flash; image and `/gemma` cases trimmed to ~27.8K; short chats unchanged.

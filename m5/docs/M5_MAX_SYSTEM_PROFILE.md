@@ -69,5 +69,6 @@ generating was 75.8 GB, no swap.
 
 ## Still open
 
-- Flash attention on vs. off (`--suite ctx`, compare prefill at 16K-30K).
+- Flash attention on vs. off: `llm-bench.py --model flash-next --sweep 16000,24000,30000 --label fa-default`, then
+  with flash attention switched, the same with `--label fa-off --vs fa-default`.
 - `max_tokens` on Flash personas used outside Auto.

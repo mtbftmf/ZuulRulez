@@ -26,4 +26,5 @@ __pycache__/
 .DS_Store
 *.log
 llm-bench-history.csv
+llm-bench-history.jsonl
 llm-probe-history.csv

@@ -14,6 +14,10 @@ Usage:
       --load-model gemma-4-26b-a4b-it-qat --load-image ~/Pictures/test.png
                                                                 # combined load: Gemma vision traffic
                                                                 # runs while flash-next is measured
+  python3 llm-bench.py --model flash-next --sweep 16000,24000,30000 --label fa-on
+                                                                # prefill + decode at several depths
+  python3 llm-bench.py --model flash-next --streams 2           # + 1 vs 2 simultaneous requests
+  python3 llm-bench.py --history                                # list saved runs and exit
 
 Tests (fixed prompts, temperature 0, 1 warm-up + 3 measured runs, median reported):
   gen     short prompt, 512-token answer  -> decode tok/s, time to first token
@@ -23,7 +27,16 @@ Tests (fixed prompts, temperature 0, 1 warm-up + 3 measured runs, median reporte
           here; pure-attention models slow down as the KV cache grows. Keep N under the context
           length the model is loaded with, per parallel slot.
 
+  sweep   (--sweep N,N,...) one ~N-token document per size, 128-token answer, --sweep-runs runs
+          each (default 2, no warm-up) -> prefill tok/s, TTFT and decode tok/s at each depth.
+  streams (--streams N) N copies of the gen test at the same time -> per-stream and total tok/s.
+
 Options:
+  --label       tag for this run (e.g. fa-on, fa-off, par1). Runs are saved to the history file
+                (default ~/llm-bench-history.jsonl, --history-file to change, --no-save to skip)
+                and compared with the last saved run of the same model and label (or of --vs LABEL):
+                a drop of more than --regress-pct (default 7%) in decode/prefill, or TTFT up by more,
+                is flagged.
   --mem         macOS: sample memory every 0.5 s during each test's measured runs and report
                 peak wired, peak compressor, worst pressure level, swap growth and page-ins.
                 Page-ins during a run mean weights (e.g. an mmap'd embedding table) are being
@@ -32,9 +45,12 @@ Options:
                 measure the main model under contention. --load-image sends an image with each
                 of those requests (vision workload).
 
-Decode tok/s counts every generated token, including reasoning/thinking tokens.
+Decode tok/s counts every generated token, including reasoning/thinking tokens; the gen test
+also shows how many of them were reasoning vs answer. For effort A/B on your own prompt use
+llm-probe.py --suite effort --effort-prompt "...".
 """
 import argparse, base64, json, mimetypes, os, platform, re, statistics, subprocess, sys, threading, time
+from datetime import datetime
 import urllib.request, urllib.error
 
 GEN_PROMPT = ("Write a detailed, technical explanation of how a CPU cache hierarchy works "
@@ -63,7 +79,9 @@ def long_prompt(target_tokens):
             "pressure, flow and vibration by station and shift, likely failure modes, and a prioritized "
             "action plan. Keep going until you reach the length limit.")
 
+VERSION = 2
 MINIMAL = False  # set True automatically if the server rejects optional fields
+HISTORY_DEFAULT = os.path.expanduser("~/llm-bench-history.jsonl")
 
 def open_stream(url, payload, api_key):
     req = urllib.request.Request(f"{url.rstrip('/')}/chat/completions", data=json.dumps(payload).encode(),
@@ -95,6 +113,7 @@ def stream_chat(url, model, prompt, max_tokens, api_key, stop=None):
     if not MINIMAL:
         payload.update({"seed": 42, "stream_options": {"include_usage": True}})
     t0 = time.perf_counter(); t_first = None; chunks = 0; usage = None
+    n_reason = n_answer = 0; in_think = False
     try:
         resp = open_stream(url, payload, api_key)
     except urllib.error.HTTPError as e:
@@ -129,10 +148,22 @@ def stream_chat(url, model, prompt, max_tokens, api_key, stop=None):
                 usage = obj["usage"]
             for ch in obj.get("choices") or []:
                 d = ch.get("delta") or {}
-                if d.get("content") or d.get("reasoning_content") or d.get("reasoning"):
+                r, c = d.get("reasoning_content") or d.get("reasoning"), d.get("content")
+                if r or c:
                     if t_first is None:
                         t_first = time.perf_counter()
                     chunks += 1
+                if r:
+                    n_reason += 1
+                if c:
+                    if "<think>" in c:
+                        in_think = True
+                    if in_think:
+                        n_reason += 1
+                    else:
+                        n_answer += 1
+                    if "</think>" in c:
+                        in_think = False
     t_end = time.perf_counter()
     if t_first is None:
         if stop is not None and stop.is_set():
@@ -145,6 +176,10 @@ def stream_chat(url, model, prompt, max_tokens, api_key, stop=None):
         est = True
     else:
         est = False
+    details = (usage or {}).get("completion_tokens_details") or {}
+    reason_tokens = details.get("reasoning_tokens")
+    if reason_tokens is None and (n_reason + n_answer):
+        reason_tokens = round(out_tokens * n_reason / (n_reason + n_answer))
     decode_s = max(t_end - t_first, 1e-6)
     ttft = t_first - t0
     return {
@@ -153,6 +188,8 @@ def stream_chat(url, model, prompt, max_tokens, api_key, stop=None):
         "prefill_tps": (in_tokens / ttft) if in_tokens else None,
         "out_tokens": out_tokens,
         "in_tokens": in_tokens,
+        "reasoning_tokens": reason_tokens,
+        "t_first": t_first, "t_end": t_end,
         "usage_reported": usage is not None,
         "estimated": est,
     }
@@ -268,9 +305,10 @@ class BackgroundLoad:
     def stop(self):
         self._stop.set(); self._t.join(timeout=30)
 
-def run_test(name, url, model, prompt, max_tokens, key, runs, mem=False):
-    print(f"[{name}] warm-up...", flush=True)
-    stream_chat(url, model, prompt, max_tokens, key)
+def run_test(name, url, model, prompt, max_tokens, key, runs, mem=False, warmup=True):
+    if warmup:
+        print(f"[{name}] warm-up...", flush=True)
+        stream_chat(url, model, prompt, max_tokens, key)
     results = []
     sampler = MemSampler() if mem else None
     if sampler:
@@ -281,7 +319,8 @@ def run_test(name, url, model, prompt, max_tokens, key, runs, mem=False):
             results.append(r)
             pf = f"{r['prefill_tps']:.0f}" if r["prefill_tps"] else "n/a"
             print(f"[{name}] run {i+1}: decode {r['decode_tps']:.1f} tok/s | TTFT {r['ttft_s']*1000:.0f} ms | "
-                  f"prefill {pf} tok/s | in {r['in_tokens']} / out {r['out_tokens']}", flush=True)
+                  f"prefill {pf} tok/s | in {r['in_tokens']} / out {r['out_tokens']}"
+                  + (f" ({r['reasoning_tokens']} reasoning)" if r.get("reasoning_tokens") else ""), flush=True)
     finally:
         if sampler:
             sampler.__exit__(None, None, None)
@@ -290,13 +329,97 @@ def run_test(name, url, model, prompt, max_tokens, key, runs, mem=False):
         print(f"[{name}] memory: {fmt_mem(memr)}", flush=True)
     med = lambda k: statistics.median([r[k] for r in results if r[k] is not None]) \
         if any(r[k] is not None for r in results) else None
-    summary = {k: med(k) for k in ("decode_tps", "ttft_s", "prefill_tps", "in_tokens", "out_tokens")}
+    summary = {k: med(k) for k in ("decode_tps", "ttft_s", "prefill_tps", "in_tokens", "out_tokens",
+                                   "reasoning_tokens")}
     summary["mem"] = memr
     return summary, results
 
+def run_streams(url, model, key, n):
+    """n copies of the gen test at once (after the gen warm-up). Returns per-stream and total tok/s."""
+    print(f"[streams] {n} simultaneous gen requests...", flush=True)
+    out, errs = [None] * n, []
+    def one(i):
+        try:
+            out[i] = stream_chat(url, model, GEN_PROMPT, 512, key)
+        except Exception as e:
+            errs.append(str(e))
+    ts = [threading.Thread(target=one, args=(i,)) for i in range(n)]
+    for t in ts: t.start()
+    for t in ts: t.join()
+    res = [r for r in out if r]
+    if errs or not res:
+        raise RuntimeError("; ".join(errs) or "no results")
+    span = max(r["t_end"] for r in res) - min(r["t_first"] for r in res)
+    total = sum(r["out_tokens"] for r in res) / max(span, 1e-6)
+    per = statistics.median(r["decode_tps"] for r in res)
+    worst_ttft = max(r["ttft_s"] for r in res)
+    print(f"[streams] per stream {per:.1f} tok/s (median) | total {total:.1f} tok/s | "
+          f"slowest TTFT {worst_ttft*1000:.0f} ms", flush=True)
+    return {"n": n, "decode_tps": per, "total_tps": total, "ttft_s": worst_ttft}
+
+# ---------------- history and regression check ----------------
+LOWER_IS_WORSE = ("decode_tps", "prefill_tps", "total_tps")
+# Metrics worth flagging per test (short prompts make prefill noise; 64-token answers make decode noise).
+TRACKED = {"gen": ("decode_tps", "ttft_s"), "prefill": ("prefill_tps",), "long": ("decode_tps", "prefill_tps"),
+           "sweep": ("prefill_tps", "decode_tps"), "streams": ("decode_tps", "total_tps")}
+
+def flat_metrics(tests):
+    """{'gen.decode_tps': 48.8, 'sweep@16000.prefill_tps': ...} for comparison."""
+    out = {}
+    for name, t in tests.items():
+        if not t:
+            continue
+        for k in TRACKED.get(name.split("@")[0], ()):
+            if t.get(k) is not None:
+                out[f"{name}.{k}"] = t[k]
+    return out
+
+def load_history(path):
+    rows = []
+    try:
+        with open(path) as f:
+            for line in f:
+                try:
+                    rows.append(json.loads(line))
+                except json.JSONDecodeError:
+                    pass
+    except FileNotFoundError:
+        pass
+    return rows
+
+def compare(prev, cur_tests, pct):
+    """Print deltas vs the previous run; return the list of regressions."""
+    a, b = flat_metrics(prev["tests"]), flat_metrics(cur_tests)
+    common = [k for k in b if k in a and a[k]]
+    if not common:
+        return []
+    print(f"\nCompared with {prev['ts']} (label {prev['label']}):")
+    bad = []
+    for k in common:
+        d = (b[k] - a[k]) / a[k] * 100
+        worse = (-d if k.split(".")[1] in LOWER_IS_WORSE else d) > pct
+        if k.endswith("ttft_s") and b[k] - a[k] < 0.02:  # ignore TTFT changes under 20 ms
+            worse = False
+        unit = "ms" if k.endswith("ttft_s") else "tok/s"
+        scale = 1000 if unit == "ms" else 1
+        flag = "  <-- SLOWER" if worse else ""
+        print(f"  {k:<28} {a[k]*scale:9.1f} -> {b[k]*scale:9.1f} {unit:<5} ({d:+.1f}%){flag}")
+        if worse:
+            bad.append(k)
+    print(f"  SLOWDOWN: {', '.join(bad)} (threshold {pct:g}%)" if bad else f"  No slowdown beyond {pct:g}%")
+    return bad
+
+def show_history(path, n=20):
+    rows = load_history(path)
+    if not rows:
+        print(f"No saved runs in {path}")
+        return
+    for r in rows[-n:]:
+        print(f"{r['ts']}  {r['label']:<12} {r.get('summary', '')}")
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--model", required=True, help="model ID as your server lists it")
+    ap.add_argument("--model", help="model ID as your server lists it (required unless --history)")
     ap.add_argument("--url", default="http://localhost:1234/v1", help="OpenAI-compatible base URL")
     ap.add_argument("--api-key", default="local")
     ap.add_argument("--runs", type=int, default=3)
@@ -307,7 +430,25 @@ def main():
     ap.add_argument("--mem", action="store_true", help="macOS: sample memory during each test")
     ap.add_argument("--load-model", default="", help="second model to keep busy during the benchmark")
     ap.add_argument("--load-image", default="", help="image file sent with each --load-model request")
+    ap.add_argument("--sweep", default="", metavar="N,N,...",
+                    help="prefill + decode at these prompt sizes (e.g. 16000,24000,30000)")
+    ap.add_argument("--sweep-runs", type=int, default=2, help="runs per sweep size (default 2, no warm-up)")
+    ap.add_argument("--streams", type=int, default=0, metavar="N", help="also run N gen requests at once")
+    ap.add_argument("--label", default="default", help="tag for this run, e.g. fa-on, fa-off")
+    ap.add_argument("--history-file", default=HISTORY_DEFAULT)
+    ap.add_argument("--no-save", action="store_true", help="do not append this run to the history file")
+    ap.add_argument("--regress-pct", type=float, default=7.0, help="flag changes worse than this (default 7)")
+    ap.add_argument("--vs", default="", metavar="LABEL", help="compare with the last run of this label instead")
+    ap.add_argument("--history", action="store_true", help="list saved runs and exit")
     a = ap.parse_args()
+    if a.history:
+        show_history(a.history_file); return
+    if not a.model:
+        ap.error("--model is required")
+    try:
+        sweep = [int(x) for x in a.sweep.split(",") if x.strip()]
+    except ValueError:
+        ap.error("--sweep: comma-separated token counts, e.g. 16000,30000")
 
     if a.mem and sys.platform != "darwin":
         print("note: --mem needs macOS (vm_stat, sysctl); skipping memory sampling", file=sys.stderr)
@@ -330,7 +471,8 @@ def main():
               f"swap used {gb(s['swap_used'])} | pressure {PRESSURE.get(s['pressure'], '?')}")
     print()
 
-    long_res = long_err = None
+    long_res = long_err = streams_res = None
+    sweep_res = {}
     try:
         gen, _ = run_test("gen", a.url, a.model, GEN_PROMPT, 512, a.api_key, a.runs, a.mem)
         pre, _ = run_test("prefill", a.url, a.model, PREFILL_PROMPT, 64, a.api_key, a.runs, a.mem)
@@ -342,12 +484,24 @@ def main():
                 long_err = str(e)
                 print(f"[long] failed: {long_err}\n[long] hint: lower --long-ctx, or raise the loaded context "
                       f"(with parallel > 1 the context may be split across slots)", flush=True)
+        for n in sweep:
+            try:
+                sweep_res[n], _ = run_test(f"sweep@{n}", a.url, a.model, long_prompt(n), 128,
+                                           a.api_key, a.sweep_runs, a.mem, warmup=False)
+            except RuntimeError as e:
+                print(f"[sweep@{n}] failed: {e}", flush=True)
+                break
+        if a.streams > 1:
+            try:
+                streams_res = run_streams(a.url, a.model, a.api_key, a.streams)
+            except RuntimeError as e:
+                print(f"[streams] failed: {e}", flush=True)
     finally:
         if load:
             load.stop()
 
     fmt = lambda v, f: (f % v) if v is not None else "n/a"
-    summary = (f"llm-bench v1 | {m.get('chip', m['os'])} {m.get('gpu_cores','?')}-core GPU {m.get('ram_gb','?')}GB | "
+    summary = (f"llm-bench v{VERSION} | {m.get('chip', m['os'])} {m.get('gpu_cores','?')}-core GPU {m.get('ram_gb','?')}GB | "
                f"{a.model}{(' ' + a.quant) if a.quant else ''}{(' / ' + a.engine) if a.engine else ''} | "
                f"decode {fmt(gen['decode_tps'], '%.1f')} tok/s | "
                f"TTFT {fmt(gen['ttft_s'] and gen['ttft_s']*1000, '%.0f')} ms | "
@@ -355,6 +509,14 @@ def main():
     if long_res:
         summary += (f" | long decode {fmt(long_res['decode_tps'], '%.1f')} tok/s @ "
                     f"{fmt(long_res['in_tokens'], '%d')} tok")
+    for n, r in sweep_res.items():
+        summary += (f" | @{fmt(r['in_tokens'], '%d')}: prefill {fmt(r['prefill_tps'], '%.0f')}, "
+                    f"decode {fmt(r['decode_tps'], '%.1f')}")
+    if streams_res:
+        summary += (f" | {streams_res['n']} streams: {streams_res['decode_tps']:.1f} each, "
+                    f"{streams_res['total_tps']:.1f} total")
+    if gen.get("reasoning_tokens"):
+        summary += f" | gen reasoning {gen['reasoning_tokens']:.0f}/{gen['out_tokens']:.0f} tok"
     if load:
         what = f"{a.load_model}{' +image' if a.load_image else ''}"
         summary += f" | under load: {what}"
@@ -380,6 +542,24 @@ def main():
             if agg["swap_growth"] > (256 << 20) or agg["worst_pressure"] >= 2:
                 print("Memory warning: swap grew or pressure left 'normal'. Expect stutter; reduce context, "
                       "parallel slots, or the second model's load.")
+
+    tests = {"gen": gen, "prefill": pre, "long": long_res, "streams": streams_res,
+             **{f"sweep@{n}": r for n, r in sweep_res.items()}}
+    tests = {k: ({kk: vv for kk, vv in v.items() if kk != "mem"} if v else None) for k, v in tests.items()}
+    same = lambda r: (r.get("model") == a.model and r.get("label") == (a.vs or a.label)
+                      and r.get("machine", {}).get("chip") == m.get("chip") and r.get("load") == (a.load_model or None))
+    prev = next((r for r in reversed(load_history(a.history_file)) if same(r)), None)
+    if prev:
+        compare(prev, tests, a.regress_pct)
+    elif not a.no_save:
+        print(f"\nFirst saved run for {a.model} / label {a.label}; later runs are compared with it.")
+    if not a.no_save:
+        rec = {"ts": datetime.now().isoformat(timespec="seconds"), "version": VERSION, "label": a.label,
+               "model": a.model, "url": a.url, "engine": a.engine, "quant": a.quant, "machine": m,
+               "load": a.load_model or None, "runs": a.runs, "tests": tests, "summary": summary}
+        with open(a.history_file, "a") as f:
+            f.write(json.dumps(rec) + "\n")
+        print(f"Saved to {a.history_file}  (list: {os.path.basename(sys.argv[0])} --history)")
 
 if __name__ == "__main__":
     try:

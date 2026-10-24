@@ -115,6 +115,9 @@ Token caps (v1.3.2): Auto builds its own request to LM Studio, so persona `max_t
 | Upgrade Open WebUI (with backup and rollback) | `~/bin/owui-upgrade.sh` |
 | Benchmark | `python3 ~/bin/llm-bench.py --model flash-next` |
 | Benchmark at depth, with memory | `python3 ~/bin/llm-bench.py --model flash-next --long-ctx 28000 --mem` |
+| Context sweep, labeled for A/B (v2) | `python3 ~/bin/llm-bench.py --model flash-next --sweep 16000,24000,30000 --label fa-on` |
+| 1 vs 2 simultaneous requests (v2) | `python3 ~/bin/llm-bench.py --model flash-next --streams 2` |
+| Saved runs (v2; each run is compared with the last one of the same model and label) | `python3 ~/bin/llm-bench.py --history` |
 | Benchmark under combined load | add `--load-model gemma-4-26b-a4b-it-qat --load-image ~/Pictures/test.png` |
 | Probe context, cache and effort | `python3 ~/bin/llm-probe.py --suite all` |
 | Compare probe runs | `python3 ~/bin/llm-probe.py --summary llm-probe-history.csv` |
