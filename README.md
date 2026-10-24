@@ -37,6 +37,20 @@ Test 1 (3-part Raspberry Pi Wi-Fi troubleshooting prompt), end to end: ~7.5 min 
 
 ![Efficiency](docs/images/flash-next-tuning.png)
 
+### MLX runtime test (Oct 24, not yet adopted)
+
+Same Flash-Next weights family on [mlx-serve](https://github.com/ddalcu/mlx-serve) 26.10.3 (pack `ddalcu/Qwen3.8-Flash-Next-MLX-Serve-mixed-4-8bit`, 4-bit affine, n-gram table mmapped like the GGUF), Gemma loaded in LM Studio, `llm-bench.py --long-ctx 28000 --mem`:
+
+| | LM Studio GGUF | mlx-serve | mlx-serve + MTP |
+| --- | --- | --- | --- |
+| Decode | 48.4 tok/s | 67.2 tok/s | 92.0 tok/s |
+| Decode @ 28K | 45.3 tok/s | 64.2 tok/s | 89.6 tok/s |
+| Prefill @ 7.8K | 934 tok/s | 2,522 tok/s | 2,522 tok/s |
+| TTFT @ 28K | 31.0 s | 11.2 s | 11.3 s |
+| Peak wired (incl. ~18 GB idle) | 75.8 GB | 95.5 GB | 100.2 GB |
+
+No swap, pressure normal in all three. The runtime alone gives 1.4x decode and 2.7x prefill; MTP adds another 1.37x decode for ~4.7 GB wired. mlx-serve sends `enable_thinking: false` unless the request says otherwise, and with thinking off Flash answered a two-step price question wrong ($83.33 instead of $75.00); with `chat_template_kwargs: {"enable_thinking": true}` it was right in 2.2 s. Effort (`reasoning_effort` low/medium/xhigh) is a request field there, but medium used more tokens than xhigh on that question.
+
 ### Behavior probes (Oct 18, `llm-probe.py`)
 
 | Check | Result |
