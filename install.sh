@@ -3,7 +3,8 @@
 # Default is a dry run: it only prints what it would do.
 #   ./install.sh            dry run
 #   ./install.sh --apply    link scripts into ~/bin (existing files are moved to *.bak-YYYYMMDD)
-#   ./install.sh --apply --launchd   also render and load ~/Library/LaunchAgents/com.$USER.flash-up.plist
+#   ./install.sh --apply --launchd   also render and load the LaunchAgents in m5/launchd/
+#                                    (com.$USER.flash-up and com.$USER.mlx-serve)
 set -euo pipefail
 REPO="${0:A:h}"
 APPLY=0; LAUNCHD=0
@@ -23,20 +24,23 @@ for f in "$REPO"/m5/bin/*; do
 done
 
 if (( LAUNCHD )); then
-  label="com.$USER.flash-up"
-  plist="$HOME/Library/LaunchAgents/$label.plist"
-  tmp=$(mktemp)
-  sed -e "s|__USER__|$USER|g" -e "s|__HOME__|$HOME|g" "$REPO/m5/launchd/flash-up.plist.template" > "$tmp"
-  if [[ -f "$plist" ]] && cmp -s "$tmp" "$plist"; then
-    print "ok      $label (unchanged)"
-  else
-    [[ -f "$plist" ]] && { print "diff vs installed:"; diff "$plist" "$tmp" || true; }
-    run launchctl bootout "gui/$UID/$label" 2>/dev/null || true
-    run sleep 5
-    [[ -f "$plist" ]] && run cp "$plist" "$plist.bak-$stamp"
-    run cp "$tmp" "$plist"
-    run launchctl bootstrap "gui/$UID" "$plist"
-  fi
-  rm -f "$tmp"
+  for tpl in "$REPO"/m5/launchd/*.plist.template; do
+    name="${${tpl:t}%.plist.template}"
+    label="com.$USER.$name"
+    plist="$HOME/Library/LaunchAgents/$label.plist"
+    tmp=$(mktemp)
+    sed -e "s|__USER__|$USER|g" -e "s|__HOME__|$HOME|g" "$tpl" > "$tmp"
+    if [[ -f "$plist" ]] && cmp -s "$tmp" "$plist"; then
+      print "ok      $label (unchanged)"
+    else
+      [[ -f "$plist" ]] && { print "diff vs installed:"; diff "$plist" "$tmp" || true; }
+      run launchctl bootout "gui/$UID/$label" 2>/dev/null || true
+      run sleep 5
+      [[ -f "$plist" ]] && run cp "$plist" "$plist.bak-$stamp"
+      run cp "$tmp" "$plist"
+      run launchctl bootstrap "gui/$UID" "$plist"
+    fi
+    rm -f "$tmp"
+  done
 fi
 (( APPLY )) || print "\nDry run only. Re-run with --apply."

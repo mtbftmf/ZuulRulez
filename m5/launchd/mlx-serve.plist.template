@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.__USER__.mlx-serve</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/opt/homebrew/bin/mlx-serve</string>
+    <string>--model</string><string>__HOME__/.mlx-serve/models/flash-next</string>
+    <string>--host</string><string>127.0.0.1</string>
+    <string>--port</string><string>11234</string>
+    <string>--ctx-size</string><string>131072</string>
+    <string>--mtp</string>
+    <string>--no-pld</string>
+    <string>--max-concurrent</string><string>2</string>
+  </array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>ThrottleInterval</key><integer>30</integer>
+  <key>ExitTimeOut</key><integer>60</integer>
+  <key>StandardOutPath</key><string>__HOME__/Library/Logs/mlx-serve.log</string>
+  <key>StandardErrorPath</key><string>__HOME__/Library/Logs/mlx-serve.log</string>
+</dict>
+</plist>
