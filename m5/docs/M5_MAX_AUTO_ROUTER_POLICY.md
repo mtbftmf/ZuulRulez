@@ -36,23 +36,27 @@ M-series Studios using a houdini account for friends and family hosting.
 
 ## M5 Max Auto Router defaults
 
-- Fast model: Gemma 4 26B-A4B QAT.
-- Strong model: Flash-Next, 88 GB GGUF on 128 GB unified memory.
+- Fast model: Gemma 4 26B-A4B QAT, LM Studio `localhost:1234` (LMSTUDIO_URL).
+- Strong model: Flash-Next, mlx-serve `127.0.0.1:11234` (STRONG_URL) since v1.4.0; the LM Studio
+  GGUF is the rollback (STRONG_URL empty, EFFORT_MODE marker).
 - Default route is Gemma.
 - Flash-Next is for explicit /flash or /strong requests, or clearly complex work.
 - Explicit overrides:
   - /gemma or /fast forces Gemma.
   - /flash or /strong forces Flash-Next.
-  - /deep forces Flash-Next with [effort:xhigh] in the system message.
+  - /deep forces Flash-Next at xhigh (reasoning_effort xhigh; [effort:xhigh] marker in marker mode).
   - /route <text> reports the route and token cap without running it.
-- Images go to Gemma by default. Flash-Next has vision (LM Studio loads its mmproj), so /flash
+- Images go to Gemma by default. Flash-Next has vision (mlx-serve loads its vision tower), so /flash
   and /deep accept images (STRONG_HAS_VISION, on by default since v1.3.4).
 - LENGTH_THRESHOLD should be 1800 or higher for this machine.
 - LONG_CHAT_TURNS should be off by default, or at most 25 with complexity scoring.
 - Small code fences must not force Flash-Next by themselves.
-- Router version: v1.3.4. Do not deploy v1.2 (d01095e): it drops the deep route and caps.
-- Effort comes from the template, not the request: medium by default, [effort:xhigh] for
-  /deep, DEEP_PHRASES or DEEP_SCORE. The router never sends reasoning_effort.
+- Router version: v1.4.0. Do not deploy v1.2 (d01095e): it drops the deep route and caps.
+- Effort (EFFORT_MODE kwargs, default): every Flash request carries
+  chat_template_kwargs {enable_thinking: true, reasoning_effort: medium}, xhigh for /deep,
+  DEEP_PHRASES or DEEP_SCORE. mlx-serve turns thinking OFF when a request omits it, and
+  thinking-off Flash answers worse, so any other path to Flash (personas) must send it too.
+- EFFORT_MODE marker (GGUF rollback): template default medium, [effort:xhigh] marker for deep routes.
 - [effort:low] buys no measurable speed; xhigh is a nudge, not a guarantee (Oct 18-19 probes).
 - Token caps when the request has none: STRONG_MAX_TOKENS 8192 (Flash medium),
   DEEP_MAX_TOKENS 24576 (Flash xhigh), FAST_MAX_TOKENS 0 (Gemma, no cap).
@@ -66,9 +70,10 @@ M-series Studios using a houdini account for friends and family hosting.
 ## M5 memory behavior
 
 - Flash-Next is expensive to route on this machine.
-- Wired RAM is expected to stay near or below roughly 74 GB under normal use.
+- Wired RAM: ~18 GB idle; with mlx-serve Flash generating, peak ~100 GB (Oct 24, MTP on,
+  Gemma idle). The GGUF peaked near 76 GB.
 - Flash-Next loads at 128K and Gemma at 32K; the 4 parallel slots of each share its context.
   A full 128K prompt takes ~2 min to read (867 tok/s at 100K). Repeated long prefixes are cheap (prefix cache: 12.9 s -> 0.05 s TTFT at 11.9K).
-- Monitor with lms ps, memory_pressure, and sysctl vm.swapusage.
+- Monitor with lms ps (Gemma), curl 127.0.0.1:11234/health (Flash), memory_pressure, and sysctl vm.swapusage.
 - Use caffeinate only during deliberate long generation sessions.
 - Do not bake aggressive Metal wired-limit values into generic builds.

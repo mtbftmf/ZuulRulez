@@ -1,17 +1,29 @@
 """
 title: Auto Router (Gemma ⇄ Flash-Next)
 author: Pdl_Pwr
-version: 1.3.4
-description: One "Auto" model. Quick requests go to Gemma 4 26B-A4B, clearly complex ones to
-             Qwen3.8-Flash-Next (medium effort), both served by LM Studio.
+version: 1.4.0
+description: One "Auto" model. Quick requests go to Gemma 4 26B-A4B (LM Studio), clearly complex
+             ones to Qwen3.8-Flash-Next (medium effort; mlx-serve since v1.4.0).
              Prefixes: /flash or /strong, /gemma or /fast, /deep (Flash at xhigh effort),
              /route <text> (shows where <text> would go, without running it).
              v1.3: escalates to Flash at xhigh on its own for explicit "think hard"-style
              phrases (DEEP_PHRASES) or a very high complexity score (DEEP_SCORE).
              v1.3.3: conversations too big for Gemma's context go to Flash.
              v1.3.4: Flash-Next has vision (mmproj); /flash and /deep accept images.
+             v1.4.0: Flash on its own server (STRONG_URL); effort sent as chat_template_kwargs.
 requirements: httpx
 """
+
+# v1.4.0 changes (Oct 24 2026)
+# - Flash-Next moved to mlx-serve (127.0.0.1:11234); Gemma stays on LM Studio. STRONG_URL is the
+#   Flash server (empty = LMSTUDIO_URL, as before). Gemma and the classifier use LMSTUDIO_URL.
+# - EFFORT_MODE "kwargs" (default): Flash requests carry
+#   chat_template_kwargs {"enable_thinking": STRONG_THINKING, "reasoning_effort": STRONG_EFFORT or
+#   DEEP_EFFORT}. mlx-serve turns thinking OFF unless a request turns it on, and thinking-off Flash
+#   answered a two-step price question wrong (Oct 24). No [effort:...] marker is added in this mode.
+# - EFFORT_MODE "marker": v1.3.4 behaviour for the LM Studio GGUF (rollback): template default,
+#   [effort:xhigh] marker for deep routes, no kwargs.
+# - /route and the status line show the effort; router errors name the server to check.
 
 # v1.3.4 changes (Oct 24 2026)
 # - STRONG_HAS_VISION now defaults to on: LM Studio loads Flash-Next with its vision projector
@@ -77,7 +89,12 @@ DEFAULT_DEEP_PHRASES = ("think hard, think harder, think carefully, think deeply
 
 class Pipe:
     class Valves(BaseModel):
-        LMSTUDIO_URL: str = Field(default="http://localhost:1234/v1", description="LM Studio OpenAI-compatible base URL")
+        LMSTUDIO_URL: str = Field(default="http://localhost:1234/v1", description="LM Studio OpenAI-compatible base URL (Gemma)")
+        STRONG_URL: str = Field(default="http://127.0.0.1:11234/v1", description="Flash-Next server base URL (empty = LMSTUDIO_URL)")
+        EFFORT_MODE: str = Field(default="kwargs", description="kwargs: send chat_template_kwargs (mlx-serve); marker: [effort:xhigh] in the system message (LM Studio GGUF)")
+        STRONG_THINKING: bool = Field(default=True, description="kwargs mode: enable_thinking for Flash (mlx-serve defaults it off)")
+        STRONG_EFFORT: str = Field(default="medium", description="kwargs mode: reasoning_effort for Flash routes (low, medium, xhigh)")
+        DEEP_EFFORT: str = Field(default="xhigh", description="kwargs mode: reasoning_effort for /deep, deep phrases and DEEP_SCORE")
         FAST_MODEL: str = Field(default="gemma-4-26b-a4b-it-qat", description="Quick model ID (as lms ps shows it)")
         STRONG_MODEL: str = Field(default="flash-next", description="Heavy model ID")
         SCORE_THRESHOLD: int = Field(default=3, description="Score at or above this → Flash")
@@ -101,7 +118,7 @@ class Pipe:
                         "Empty = built-in list; type off to disable",
         )
         DEEP_SCORE: int = Field(default=7, description="Score at or above this → Flash at xhigh (0 = off). Max score is 10-11")
-        DEEP_MARKER: str = Field(default="[effort:xhigh]", description="Added to the system message for /deep")
+        DEEP_MARKER: str = Field(default="[effort:xhigh]", description="marker mode: added to the system message for /deep")
         SHOW_ROUTE: bool = Field(default=True, description="Show which model answered, and why, above the reply")
         STRONG_PARAMS: str = Field(default='{"temperature": 1.0, "top_p": 0.95, "top_k": 20, "min_p": 0.0}',
                                    description="JSON sampling params for the strong model")
@@ -326,6 +343,32 @@ class Pipe:
         return False, False, f"score {score}" + (": " + ", ".join(reasons) if reasons else "") + " (quick)", False
 
     # ---------- forwarding ----------
+    def _kwargs_mode(self) -> bool:
+        return (self.valves.EFFORT_MODE or "kwargs").strip().lower() != "marker"
+
+    def _effort(self, deep: bool) -> str:
+        e = (self.valves.DEEP_EFFORT if deep else self.valves.STRONG_EFFORT) or ""
+        e = e.strip().lower()
+        return e if e in ("low", "medium", "xhigh") else ("xhigh" if deep else "medium")
+
+    def _base_url(self, use_strong: bool) -> str:
+        if use_strong and (self.valves.STRONG_URL or "").strip():
+            return self.valves.STRONG_URL.strip().rstrip("/")
+        return self.valves.LMSTUDIO_URL.rstrip("/")
+
+    def _label(self, use_strong: bool, deep: bool) -> str:
+        if not use_strong:
+            return "Gemma"
+        if self._kwargs_mode():
+            return f"Flash-Next ({self._effort(deep)})" if self.valves.STRONG_THINKING else "Flash-Next (no thinking)"
+        return "Flash-Next (xhigh)" if deep else "Flash-Next"
+
+    def _hint(self, use_strong: bool) -> str:
+        url = self._base_url(use_strong)
+        if use_strong and url != self.valves.LMSTUDIO_URL.rstrip("/"):
+            return f"(Is Flash's server up? `curl {url.rsplit('/v1', 1)[0]}/health`; log: ~/.mlx-serve/logs/)"
+        return "(Is it loaded? `lms ps`)"
+
     def _cap(self, use_strong: bool, deep: bool, body: dict):
         """max_tokens for this route: request value first, then the route's valve; None = no cap."""
         try:
@@ -344,7 +387,7 @@ class Pipe:
     async def pipe(self, body: dict, __event_emitter__=None):
         messages = [dict(m) for m in body.get("messages", [])]
         use_strong, deep, reason, dry_run = await self.route(messages)
-        label = ("Flash-Next (xhigh)" if deep else "Flash-Next") if use_strong else "Gemma"
+        label = self._label(use_strong, deep)
 
         cap, cap_src = self._cap(use_strong, deep, body)
         cap_txt = f"cap {cap:,} tokens ({cap_src})" if cap else "no token cap"
@@ -353,7 +396,7 @@ class Pipe:
             return f"**Route test:** this message would go to **{label}**: {reason}; {cap_txt}."
 
         model = self.valves.STRONG_MODEL if use_strong else self.valves.FAST_MODEL
-        if deep:
+        if deep and not self._kwargs_mode():
             self._add_marker(messages)
 
         if __event_emitter__ and self.valves.SHOW_ROUTE:
@@ -367,13 +410,20 @@ class Pipe:
         payload = {"model": model, "messages": messages, "stream": bool(body.get("stream", True)), **params}
         if cap:
             payload["max_tokens"] = cap
-        url = f"{self.valves.LMSTUDIO_URL.rstrip('/')}/chat/completions"
+        if use_strong and self._kwargs_mode():
+            payload["chat_template_kwargs"] = {"enable_thinking": bool(self.valves.STRONG_THINKING),
+                                               "reasoning_effort": self._effort(deep)}
+        url = f"{self._base_url(use_strong)}/chat/completions"
+        hint = self._hint(use_strong)
 
         if not payload["stream"]:
             async with httpx.AsyncClient(timeout=None) as c:
-                r = await c.post(url, json=payload)
+                try:
+                    r = await c.post(url, json=payload)
+                except httpx.HTTPError as e:
+                    return f"**Router could not reach {model} at {url}:** {e}\n\n{hint}"
                 if r.status_code != 200:
-                    return f"**Router error {r.status_code} from {model}:** {r.text[:400]}"
+                    return f"**Router error {r.status_code} from {model}:** {r.text[:400]}\n\n{hint}"
                 choice = (r.json().get("choices") or [{}])[0]
                 msg = choice.get("message") or {}
                 think = msg.get("reasoning_content") or msg.get("reasoning")
@@ -381,41 +431,47 @@ class Pipe:
                     if choice.get("finish_reason") == "length" and payload.get("max_tokens") else ""
                 return (f"<think>{think}</think>\n" if think else "") + (msg.get("content") or "") + note
 
-        return self._stream(url, payload, model)
+        return self._stream(url, payload, model, hint)
 
-    async def _stream(self, url, payload, model) -> AsyncGenerator:
+    async def _stream(self, url, payload, model, hint="(Is it loaded? `lms ps`)") -> AsyncGenerator:
         in_think = False
         finish = None
-        async with httpx.AsyncClient(timeout=None) as c:
-            async with c.stream("POST", url, json=payload) as r:
-                if r.status_code != 200:
-                    err = (await r.aread()).decode("utf-8", "ignore")[:400]
-                    yield f"**Router error {r.status_code} from {model}:** {err}\n\n(Is it loaded? `lms ps`)"
-                    return
-                async for line in r.aiter_lines():
-                    if not line.startswith("data:"):
-                        continue
-                    data = line[5:].strip()
-                    if data == "[DONE]":
-                        break
-                    try:
-                        choice = (json.loads(data).get("choices") or [{}])[0]
-                        delta = choice.get("delta") or {}
-                    except (json.JSONDecodeError, IndexError, AttributeError):
-                        continue
-                    finish = choice.get("finish_reason") or finish
-                    think = delta.get("reasoning_content") or delta.get("reasoning")
-                    if think:
-                        if not in_think:
-                            in_think = True
-                            yield "<think>"
-                        yield think
-                    content = delta.get("content")
-                    if content:
-                        if in_think:
-                            in_think = False
-                            yield "</think>\n"
-                        yield content
+        try:
+            async with httpx.AsyncClient(timeout=None) as c:
+                async with c.stream("POST", url, json=payload) as r:
+                    if r.status_code != 200:
+                        err = (await r.aread()).decode("utf-8", "ignore")[:400]
+                        yield f"**Router error {r.status_code} from {model}:** {err}\n\n{hint}"
+                        return
+                    async for line in r.aiter_lines():
+                        if not line.startswith("data:"):
+                            continue
+                        data = line[5:].strip()
+                        if data == "[DONE]":
+                            break
+                        try:
+                            choice = (json.loads(data).get("choices") or [{}])[0]
+                            delta = choice.get("delta") or {}
+                        except (json.JSONDecodeError, IndexError, AttributeError):
+                            continue
+                        finish = choice.get("finish_reason") or finish
+                        think = delta.get("reasoning_content") or delta.get("reasoning")
+                        if think:
+                            if not in_think:
+                                in_think = True
+                                yield "<think>"
+                            yield think
+                        content = delta.get("content")
+                        if content:
+                            if in_think:
+                                in_think = False
+                                yield "</think>\n"
+                            yield content
+        except httpx.HTTPError as e:
+            if in_think:
+                yield "</think>\n"
+            yield f"**Router could not reach {model} at {url}:** {e}\n\n{hint}"
+            return
         if in_think:
             yield "</think>\n"
         if finish == "length" and payload.get("max_tokens"):
