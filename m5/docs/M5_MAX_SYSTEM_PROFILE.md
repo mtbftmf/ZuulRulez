@@ -27,7 +27,8 @@ Current as of 2026-10-23. Dated history is in `CHANGELOG.md`.
 | mmap | On | Per-layer embeddings (35.8 GB) stay mostly on SSD |
 | Keep in Memory | Off | Turn on first if decode jitters under memory pressure |
 | Chat template box | Default | Template lives in GGUF shard 1 (see below) |
-| Flash attention | Runtime default, not recorded | Not measured yet: compare `llm-probe.py --suite ctx` with it on and off |
+| Flash attention | On (`--flash-attn on`; Gemma: `auto`) | Read from the llama-server command line Oct 24. LM Studio has no switch for it (not in the CLI, Model Defaults or load settings), so no on/off comparison |
+| Vision | Yes: `mmproj-Qwen3.8-Flash-Next-F16.gguf` (862 MB) loaded with the model | Described a desktop screenshot correctly Oct 24; already counted in the memory figures |
 | KV cache quantization | Runtime default (unquantized) | Leave it: the KV cache is only ~3 GB at 128K |
 | Speculative decoding | None | Dropped Oct 16: no MTP or draft tensors in this GGUF, and MoE + hybrid attention make a draft model unlikely to help |
 
@@ -39,7 +40,7 @@ Current as of 2026-10-23. Dated history is in `CHANGELOG.md`.
 - Effort is a nudge, not a budget (Oct 18-19 probes): reasoning length is nearly flat
   across levels on easy and medium prompts, and on a hard prompt every level ran
   ~10 min. `[effort:low]` buys no speed.
-- `max_tokens` is the real time limit. Auto Router v1.3.3 caps: Flash medium 8192,
+- `max_tokens` is the real time limit. Auto Router v1.3.4 caps: Flash medium 8192,
   Flash xhigh 24576, Gemma none. Persona caps for Flash personas picked directly are
   suggested in the README but not yet applied.
 
@@ -69,6 +70,4 @@ generating was 75.8 GB, no swap.
 
 ## Still open
 
-- Flash attention on vs. off: `llm-bench.py --model flash-next --sweep 16000,24000,30000 --label fa-default`, then
-  with flash attention switched, the same with `--label fa-off --vs fa-default`.
 - `max_tokens` on Flash personas used outside Auto.

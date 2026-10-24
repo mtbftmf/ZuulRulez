@@ -1,7 +1,7 @@
 """
 title: Auto Router (Gemma ⇄ Flash-Next)
 author: Pdl_Pwr
-version: 1.3.3
+version: 1.3.4
 description: One "Auto" model. Quick requests go to Gemma 4 26B-A4B, clearly complex ones to
              Qwen3.8-Flash-Next (medium effort), both served by LM Studio.
              Prefixes: /flash or /strong, /gemma or /fast, /deep (Flash at xhigh effort),
@@ -9,9 +9,17 @@ description: One "Auto" model. Quick requests go to Gemma 4 26B-A4B, clearly com
              v1.3: escalates to Flash at xhigh on its own for explicit "think hard"-style
              phrases (DEEP_PHRASES) or a very high complexity score (DEEP_SCORE).
              v1.3.3: conversations too big for Gemma's context go to Flash.
+             v1.3.4: Flash-Next has vision (mmproj); /flash and /deep accept images.
 requirements: httpx
 """
 
+# v1.3.4 changes (Oct 24 2026)
+# - STRONG_HAS_VISION now defaults to on: LM Studio loads Flash-Next with its vision projector
+#   (mmproj-Qwen3.8-Flash-Next-F16.gguf, 862 MB) and it described a screenshot correctly.
+#   Images still go to Gemma by default (faster); /flash and /deep with an image now go to Flash.
+# - Context guard: an image in a conversation too big for Gemma now goes to Flash (128K) instead
+#   of being trimmed, when STRONG_HAS_VISION is on. Only /gemma and /fast still trim.
+#
 # v1.3.3 changes (Oct 23 2026)
 # - Context guard: Flash is loaded at 128K, Gemma at 32K. Before sending to Gemma, the whole request
 #   (system prompt, history, images) is estimated in tokens. Over FAST_CTX - FAST_CTX_RESERVE:
@@ -84,7 +92,7 @@ class Pipe:
             description="Comma-separated task phrases (whole-word match); one match adds 3",
         )
         IMAGES_TO_FAST: bool = Field(default=True, description="Messages with images go to the fast model (vision)")
-        STRONG_HAS_VISION: bool = Field(default=False, description="Allow images on Flash when forced with /flash or /deep")
+        STRONG_HAS_VISION: bool = Field(default=True, description="Flash-Next can read images: /flash, /deep and oversized image chats go to Flash")
         LONG_CHAT_TURNS: int = Field(default=0, description="If > 0: conversations past this many turns add 1 for substantial messages")
         USE_CLASSIFIER: bool = Field(default=False, description="Ambiguous messages: ask the fast model SIMPLE/COMPLEX (+~0.5 s)")
         DEEP_PHRASES: Optional[str] = Field(
@@ -234,7 +242,7 @@ class Pipe:
         forced_fast = bool(re.match(r"^(/route\b\s*)?/(gemma|fast)\b", text.lstrip(), re.I))
         use_strong, deep, reason, dry_run = await self._route(messages)
         if not use_strong:
-            use_strong, reason = self._fit_fast(messages, reason, must_fast=has_img or forced_fast)
+            use_strong, reason = self._fit_fast(messages, reason, must_fast=forced_fast or (has_img and not self.valves.STRONG_HAS_VISION))
         return use_strong, deep, reason, dry_run
 
     async def _route(self, messages) -> tuple:
@@ -258,7 +266,7 @@ class Pipe:
             if cmd in ("gemma", "fast"):
                 return False, False, f"forced with /{cmd}", False
             if has_img and not self.valves.STRONG_HAS_VISION:
-                return False, False, f"/{cmd} ignored: image attached and Flash is text-only", False
+                return False, False, f"/{cmd} ignored: image attached and STRONG_HAS_VISION is off", False
             return True, cmd == "deep", f"forced with /{cmd}", False
 
         if has_img and self.valves.IMAGES_TO_FAST:

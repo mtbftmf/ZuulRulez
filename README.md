@@ -10,7 +10,7 @@ Local LLM setup that runs two models side by side in LM Studio behind Open WebUI
 | --- | --- |
 | Hardware | Mac Studio M5 Max (18 CPU / 40 GPU), 128 GB, 1 TB, macOS 27.0.1 |
 | Workhorse | `flash-next` = AtomicChat `Qwen3.8-Flash-Next-AD-4.27bpw-Q4_K_M-M64` (33-shard GGUF, 88 GB of weights) |
-| Router / vision / tasks | `gemma-4-26b-a4b-it-qat` (13.4 GB) |
+| Router / vision / tasks | `gemma-4-26b-a4b-it-qat` (13.4 GB). Flash-Next also has vision (862 MB mmproj, loaded automatically) |
 | Load settings | Context: Flash 128K, Gemma 32K (both support 256K); GPU max, parallel 4, mmap on (Flash: Keep in Memory off) |
 | Server | LM Studio on `localhost:1234` only; no LAN binding, no CORS, JIT off |
 | Front end | Open WebUI 0.12, launchd daemon on `:8080`, data in `~/open-webui-data` |
@@ -87,12 +87,12 @@ Persona caps are not set yet. Auto ignores persona settings and uses its own val
 Paste into Open WebUI → Admin → Functions. Routing, first match wins:
 
 1. Prefix: `/flash` `/strong` → Flash (medium); `/deep` → Flash + `[effort:xhigh]`; `/gemma` `/fast` → Gemma; `/route` → dry run that reports the route.
-2. Image attached → Gemma (Flash is text-only).
+2. Image attached → Gemma (faster). Flash-Next has vision too: `/flash` or `/deep` with an image goes to Flash (`STRONG_HAS_VISION`, on by default).
 3. Short continuation ("continue", "yes") → Flash if the previous answer was long, else Gemma.
 4. Depth phrase or score ≥ 7 → Flash (xhigh); score ≥ 3 → Flash (medium). Scoring: +3 code task, +3 task phrase (troubleshoot, root cause, audit, WACC…), +2 over 1,800 chars, +2 more over 5,400.
 5. Otherwise → Gemma.
 
-Context guard (v1.3.3): Gemma is loaded at 32K, Flash at 128K. A Gemma route whose whole request (system prompt, history, images) is estimated over `FAST_CTX` − `FAST_CTX_RESERVE` (32,768 − 4,096) goes to Flash instead. When Gemma is required (image attached, or `/gemma`), the oldest messages are dropped until it fits and the status line says so. Estimate: characters ÷ 3 + 1,100 per image. Set `FAST_CTX` to whatever `lms ps` shows for Gemma; 0 turns the guard off.
+Context guard (v1.3.3): Gemma is loaded at 32K, Flash at 128K. A Gemma route whose whole request (system prompt, history, images) is estimated over `FAST_CTX` − `FAST_CTX_RESERVE` (32,768 − 4,096) goes to Flash instead. An image chat that is too big goes to Flash as well (v1.3.4). Only with `/gemma` (or `STRONG_HAS_VISION` off) are the oldest messages dropped until it fits and the status line says so. Estimate: characters ÷ 3 + 1,100 per image. Set `FAST_CTX` to whatever `lms ps` shows for Gemma; 0 turns the guard off.
 
 The router never sends `reasoning_effort`. Thresholds and phrase lists are valves.
 
