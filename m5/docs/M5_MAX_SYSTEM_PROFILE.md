@@ -2,72 +2,127 @@
 
 Applies ONLY to the M5 Max Studio 128 GB host. Generic M-series Studios running the
 Gemma 4 build for friends-and-family hosting (houdini account, `m1/` scripts) do not
-use any of this: no Flash-Next, no rewritten template, no 128 GB memory budget.
+use any of this: no Flash-Next, no mlx-serve, no 128 GB memory budget.
 
-Current as of 2026-10-23. Dated history is in `CHANGELOG.md`.
+Current as of 2026-10-25. Dated history is in `CHANGELOG.md`; the switch from the
+LM Studio GGUF to mlx-serve is planned and tracked in `M5_MAX_MLX_SWITCH_PLAN.md`.
 
 ## Model and engine
 
 | Item | Setting |
 | --- | --- |
-| Model | AtomicChat `Qwen3.8-Flash-Next-AD-4.27bpw-Q4_K_M-M64`, identifier `flash-next` |
-| Format | GGUF, 33 shards, ~88 GB of weights; arch `qwen4exp` (MoE + hybrid linear attention, full attention every 4 layers) |
-| Quant | Labelled Q4_K_M; mixed quant averaging 4.27 bits per weight. Not MLX |
-| Engine | LM Studio llama.cpp (Metal) runtime 2.63.0 since Oct 23 (2.61.0 kept for rollback) |
-| Server | `localhost:1234` only, JIT loading off |
-| Storage | Internal drive. Never on the external RAID0 (88 GB is memory-mapped; the stripe has no redundancy) |
+| Model | Qwen3.8-Flash-Next, MLX pack `ddalcu/Qwen3.8-Flash-Next-MLX-Serve-mixed-4-8bit`, identifier `flash-next` |
+| Files | Hugging Face cache snapshot, linked as `~/.mlx-serve/models/flash-next` (the link name is the model id). 94.7 GB: ~100 weight shards (~65 GB), `ngram_table.bin` (30 GB), `model-vision.safetensors` (856 MB); MTP head inside the shards |
+| Quant | 4-bit affine (mixed 4/8-bit); arch `qwen4_exp` (48 layers: Gated DeltaNet 3:1 with Qwen Sparse Attention, 512-expert MoE, 10 routed + 1 shared) |
+| Engine | mlx-serve 26.10.3 (MLX 0.32.3), Homebrew tap `ddalcu/mlx-serve`, `brew pin`ned |
+| Server | `127.0.0.1:11234` only (the mlx-serve default is `0.0.0.0`), OpenAI-compatible `/v1`, `/health`, `/metrics.json` |
+| Process | LaunchAgent `com.$USER.mlx-serve` (KeepAlive, ThrottleInterval 30), template `m5/launchd/mlx-serve.plist.template` |
+| Logs | `~/.mlx-serve/logs/mlx-serve-11234.log` (rotates at 32 MB), `~/Library/Logs/mlx-serve.log` |
+| Storage | Internal drive. Never on the external RAID0 (the 30 GB n-gram table is memory-mapped; the stripe has no redundancy) |
+| Rollback | AtomicChat `Qwen3.8-Flash-Next-AD-4.27bpw-Q4_K_M-M64` GGUF (88 GB) in LM Studio, `FLASH_BACKEND=gguf` in `~/.config/macllm.env`. Kept until two weeks after the switch |
 
-## Load settings (`flash-up.sh`: `--gpu max --context-length 131072`)
+## Server flags (`mlx-serve.plist.template`)
 
-| Setting | Value | Status |
+| Flag | Value | Why |
 | --- | --- | --- |
-| Context | 128K (native max 256K) | Raised from 32K Oct 23. Parallel slots share the full context; a 100.9K-token prompt ran at 41.0 tok/s decode. Gemma stays at 32K: at 128K, LM Studio's load guardrail refuses Flash (it counts all 88 GB as resident) |
-| GPU offload | Full | |
-| Parallel | 4 | |
-| mmap | On | Per-layer embeddings (35.8 GB) stay mostly on SSD |
-| Keep in Memory | Off | Turn on first if decode jitters under memory pressure |
-| Chat template box | Default | Template lives in GGUF shard 1 (see below) |
-| Flash attention | On (`--flash-attn on`; Gemma: `auto`) | Read from the llama-server command line Oct 24. LM Studio has no switch for it (not in the CLI, Model Defaults or load settings), so no on/off comparison |
-| Vision | Yes: `mmproj-Qwen3.8-Flash-Next-F16.gguf` (862 MB) loaded with the model | Described a desktop screenshot correctly Oct 24; already counted in the memory figures |
-| KV cache quantization | Runtime default (unquantized) | Leave it: the KV cache is only ~3 GB at 128K |
-| Speculative decoding | None | Dropped Oct 16: no MTP or draft tensors in this GGUF, and MoE + hybrid attention make a draft model unlikely to help |
+| `--host` | `127.0.0.1` | The default binds the whole LAN |
+| `--ctx-size` | 131072 | Same 128K as the GGUF; native max 256K |
+| `--mtp` | on | Native MTP head: 67 → 92 tok/s for ~4.7 GB wired |
+| `--no-pld` | off | Prompt-lookup drafting not measured; MTP outranks it anyway |
+| `--max-concurrent` | 2 | A second Flash chat starts at once (each ~51 tok/s, 100.6 total) instead of queueing |
+| `--metrics` | on | `/metrics.json` for the System Monitor |
+| `--ple-gpu` | not set | Keeps the n-gram table mmapped (CPU gather) instead of 30 GB resident |
+| `--prefix-cache-disk` | not set | SSD prefix tier off; hot cache ~5.2 GB (one 128K session) |
+
+mlx-serve picks its own prefill chunk from free memory (2048 tokens at load on Oct 24) and
+plans against a 110 GB wired budget internally; `iogpu.wired_limit_mb` stays 0 (default).
 
 ## Reasoning effort
 
-- Default `medium`, set by the rewritten template in shard 1; `[effort:xhigh]` or
-  `[effort:low]` in the first system message overrides it. LM Studio ignores
-  `reasoning_effort` in requests.
-- Effort is a nudge, not a budget (Oct 18-19 probes): reasoning length is nearly flat
-  across levels on easy and medium prompts, and on a hard prompt every level ran
-  ~10 min. `[effort:low]` buys no speed.
-- `max_tokens` is the real time limit. Auto Router v1.3.4 caps: Flash medium 8192,
-  Flash xhigh 24576, Gemma none. Persona caps for Flash personas picked directly are
-  suggested in the README but not yet applied.
+- mlx-serve turns thinking **off** unless the request turns it on. With thinking off Flash
+  answered a two-step price question wrong ($83.33 instead of $75.00, Oct 24).
+- Every path sends `chat_template_kwargs` `{"enable_thinking": true, "reasoning_effort": "medium"}`
+  (`xhigh` for deep work): Auto Router v1.4.1 (valves `STRONG_THINKING`, `STRONG_EFFORT`,
+  `DEEP_EFFORT`) and every Flash-* persona (custom parameter `params.custom_params`; Flash-IT-Deep
+  `xhigh`). Copy to new personas with `REF=muse-general PARAM_KEYS=custom_params owui-sync-flash.sh`.
+- The template is the stock Qwen one in the pack (`chat_template.jinja`): default xhigh when
+  `enable_thinking` is undefined, `low`/`medium`/`xhigh` accepted. `[effort:...]` markers do nothing here.
+- Effort is a nudge, not a budget (Oct 18-19 probes on the GGUF; Oct 24 on MLX medium used more
+  tokens than xhigh on a short question). `max_tokens` is the real time limit: Auto caps Flash
+  medium 8192, Flash xhigh 24576, Gemma none.
 
-## Measured
+## Measured (Oct 24-25)
 
 | | Value |
 | --- | --- |
-| Decode | 48.1 tok/s (runtime 2.63.0; was 48.3 on 2.61.0) |
-| Prefill @ 7.8K | 934 tok/s (was 942) |
-| Time to first token | 257 ms |
-| Decode generating to 28K | 45.8-46.3 tok/s |
-| Decode @ 100.9K-token prompt (128K context) | 41.0 tok/s; prefill 867 tok/s, TTFT 116 s |
-| Prefix cache, 11.9K-token prompt repeated | TTFT 12.9 s -> 0.05 s |
-| Both models busy (Gemma vision + Flash) | Flash 28.7 tok/s, Gemma 62.1 tok/s |
+| Decode | 93.5 tok/s (no MTP: 67.2) |
+| Decode @ 28K context | 88.3 tok/s |
+| Prefill @ 7.8K | 2,506 tok/s |
+| Time to first token | 268 ms; 11.3 s @ 28K |
+| Prefix cache, 11,989-token prompt repeated | TTFT 5.75 s → 0.11 s |
+| Gemma busy with image requests at the same time | Flash 56.8 tok/s (44.9 @ 28K), Gemma 49.1 tok/s |
+| Two Flash requests at once | 51.5 tok/s each, 100.6 total |
+| Test 1, bare API prompt, medium | ~62 s for ~5.6K tokens (GGUF ~105 s, same length) |
+| First request after reboot without warm-up | 4.3 s (next 0.96 s); `flash-up.sh` warm-up takes it at login (4 s) |
 
-## Memory (Oct 17 snapshot, `llm-mem.py`)
+GGUF on LM Studio for comparison: 48.4 tok/s decode, 934 tok/s prefill, 45.3 @ 28K, 31 s TTFT @ 28K.
 
-| | Weights resident | Working memory |
-| --- | --- | --- |
-| Flash-Next | 67.4 GB of 88.0 GB (77%) | 8.3 GB |
-| Gemma 4 26B-A4B QAT | 13.4 GB (100%) | 9.8 GB |
+## Memory
 
-Flash weights: experts 47.2 GB, per-layer embeddings 35.8 GB (sparse lookup, mostly on
-SSD), attention 1.5 GB, the rest under 1 GB each. KV cache ~0.75 GB at 32K (~3 GB at 128K), linear-attention
-state not included. Resident size moves with mmap paging; peak wired with both models
-generating was 75.8 GB, no swap.
+| State | Wired (whole system) |
+| --- | --- |
+| Idle, both models loaded | ~18 GB (mlx-serve releases wiring when idle) |
+| Flash generating | ~88-98 GB |
+| Flash + Gemma both busy | peak 101.7 GB |
+
+No swap growth and pressure normal in every test. The n-gram table (`ngram_warm_bytes`, ~32 GB)
+lives in the page cache, not wired memory, so `top`'s "used" sits near 126 GB. Flash process
+memory: `memory_mb` ~75 GB in `/metrics.json`. After a reboot, before any request, macOS
+compressed the idle weights (41 GB compressor); a long idle under memory pressure can do it again,
+costing one ~3-4 s request.
+
+## Metrics (`GET http://127.0.0.1:11234/metrics.json`, mlx-serve 26.10.3)
+
+Sections: `counters`, `gauges`, `decode_serial`, `histograms`, `sessions`.
+
+| Want | Fields |
+| --- | --- |
+| Decode tok/s per completed request | Δ`histograms.output_tokens.sum` / Δ`histograms.decode_time_seconds.sum` |
+| Prefill tok/s | Δ`histograms.prompt_tokens.sum` / Δ`histograms.prefill_time_seconds.sum` |
+| Live throughput | Δ(`counters.generation_tokens_total` + `gauges.generation_tokens_live`) / Δt while `gauges.requests_running` > 0 |
+| TTFT, end to end | `histograms.time_to_first_token_seconds`, `histograms.e2e_request_latency_seconds` (Δsum / Δcount) |
+| Load | `gauges.requests_running`, `requests_waiting`, `requests_prefilling`, `gpu_utilization_pct` |
+| Memory | `gauges.memory_mb`, `mlx_active_bytes`, `mlx_cache_bytes`, `ngram_warm_bytes` |
+| Prefix cache | `counters.prefix_cache_hits_total` / `prefix_cache_queries_total` |
+
+Histograms have `count`, `sum`, `bounds`, `bucket_counts`.
+
+## Open WebUI memory text
+
+Source text for the Open WebUI memories about this host (Settings → Personalization → Memory).
+Replace the older Flash-Next memories (engine, effort, measured performance) with these.
+
+1. M5 Max Flash-Next engine: Flash-Next (`flash-next`) runs on mlx-serve 26.10.3 (MLX pack
+   ddalcu/Qwen3.8-Flash-Next-MLX-Serve-mixed-4-8bit) at 127.0.0.1:11234, LaunchAgent
+   com.$USER.mlx-serve, 128K context, MTP on, 2 concurrent requests, metrics at /metrics.json.
+   Gemma 4 26B-A4B QAT stays on LM Studio at localhost:1234 (32K). Open WebUI has both
+   connections. flash-up.sh starts both, warms Flash and checks them; FLASH_BACKEND=gguf in
+   ~/.config/macllm.env rolls Flash back to the LM Studio GGUF. LM Studio's window shows only Gemma.
+2. M5 Max Flash-Next effort: mlx-serve turns thinking off unless a request sends
+   chat_template_kwargs {"enable_thinking": true, "reasoning_effort": "medium"} (low, medium or
+   xhigh); thinking-off answers are worse. Auto Router v1.4.1 and every Flash persona send it
+   (Flash-IT-Deep xhigh). [effort:...] markers only matter on the GGUF rollback. Effort barely
+   changes reasoning length; max_tokens is the real limit (Auto: Flash 8192, deep 24576, Gemma none).
+3. M5 Max measured performance (Oct 24-25): Flash on mlx-serve 93 tok/s decode, 88 tok/s at 28K,
+   2,500 tok/s prefill, 11 s TTFT at 28K, prefix cache 5.75 s → 0.11 s at 12K; with Gemma busy
+   Flash 57 tok/s and Gemma 49 tok/s. Gemma alone 124 tok/s. Wired ~18 GB idle, ~88-102 GB while
+   Flash works, no swap. The old GGUF did 48 tok/s and 934 tok/s prefill.
+
+The repo-workflow and M5-scope memories from Oct 23 are unchanged.
 
 ## Still open
 
+- Swap watch through Oct 27 (`sysctl vm.swapusage`).
+- 10-prompt quality check, GGUF vs mlx-serve, before deleting the GGUF.
 - `max_tokens` on Flash personas used outside Auto.
+- RAID guard retry still misses the TB5 volume after a reboot (20 s).

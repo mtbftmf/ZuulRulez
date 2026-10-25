@@ -1,7 +1,13 @@
 # M5 Max: switch Flash-Next from LM Studio GGUF to mlx-serve
 
-Plan, written 2026-10-24. Applies ONLY to the M5 Max Studio 128 GB host. Nothing here is done
-yet; each step becomes one commit and one CHANGELOG line when it is.
+Plan, written 2026-10-24. Applies ONLY to the M5 Max Studio 128 GB host. Each step became one
+commit and one CHANGELOG line.
+
+**Status (2026-10-25):** switched. Steps 1-6 and 8 done; step 7 passed everything except the
+three-day swap watch (to Oct 27) and the 10-prompt quality check. Additions beyond the plan:
+router v1.4.1 (prefixes with attachments), `flash-up.sh` warm-up after reboot, `--metrics`,
+`llm-bench`/`llm-probe` finding the right server. Remaining: GGUF removal two weeks after the
+switch, if the quality check passes.
 
 ## Why
 
