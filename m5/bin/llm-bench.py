@@ -43,7 +43,8 @@ Options:
                 read back from SSD.
   --load-model  keep a second model busy (back-to-back requests) for the whole benchmark, to
                 measure the main model under contention. --load-image sends an image with each
-                of those requests (vision workload).
+                of those requests (vision workload). --load-url sends that load to another server
+                (default: --url), e.g. Gemma on LM Studio while Flash is measured on mlx-serve.
 
 Decode tok/s counts every generated token, including reasoning/thinking tokens; the gen test
 also shows how many of them were reasoning vs answer. For effort A/B on your own prompt use
@@ -430,6 +431,7 @@ def main():
     ap.add_argument("--mem", action="store_true", help="macOS: sample memory during each test")
     ap.add_argument("--load-model", default="", help="second model to keep busy during the benchmark")
     ap.add_argument("--load-image", default="", help="image file sent with each --load-model request")
+    ap.add_argument("--load-url", default="", help="base URL for --load-model (default: --url)")
     ap.add_argument("--sweep", default="", metavar="N,N,...",
                     help="prefill + decode at these prompt sizes (e.g. 16000,24000,30000)")
     ap.add_argument("--sweep-runs", type=int, default=2, help="runs per sweep size (default 2, no warm-up)")
@@ -455,6 +457,8 @@ def main():
         a.mem = False
     if a.load_image and not a.load_model:
         ap.error("--load-image needs --load-model")
+    if a.load_url and not a.load_model:
+        ap.error("--load-url needs --load-model")
     if a.load_image and not os.path.isfile(os.path.expanduser(a.load_image)):
         ap.error(f"--load-image: no such file: {a.load_image}  "
                  f"(make one with: screencapture -x ~/Pictures/test.png)")
@@ -463,8 +467,10 @@ def main():
     print(f"Machine: {m}\nModel: {a.model} @ {a.url}")
     load = None
     if a.load_model:
-        print(f"Background load: {a.load_model}{' + image ' + os.path.basename(a.load_image) if a.load_image else ''}")
-        load = BackgroundLoad(a.url, a.load_model, a.api_key, a.load_image or None).start()
+        load_url = a.load_url or a.url
+        print(f"Background load: {a.load_model}{' + image ' + os.path.basename(a.load_image) if a.load_image else ''}"
+              + (f" @ {load_url}" if a.load_url else ""))
+        load = BackgroundLoad(load_url, a.load_model, a.api_key, a.load_image or None).start()
     if a.mem:
         s = mem_snapshot()
         print(f"Memory before: wired {gb(s['wired'])} | compressor {gb(s['compressor'])} | "

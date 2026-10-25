@@ -133,7 +133,7 @@ Token caps (v1.3.2): Auto builds its own request to LM Studio, so persona `max_t
 | Context sweep, labeled for A/B (v2) | `python3 ~/bin/llm-bench.py --model flash-next --sweep 16000,24000,30000 --label fa-on` |
 | 1 vs 2 simultaneous requests (v2) | `python3 ~/bin/llm-bench.py --model flash-next --streams 2` |
 | Saved runs (v2; each run is compared with the last one of the same model and label) | `python3 ~/bin/llm-bench.py --history` |
-| Benchmark under combined load | add `--load-model gemma-4-26b-a4b-it-qat --load-image ~/Pictures/test.png` |
+| Benchmark under combined load | add `--load-url http://localhost:1234/v1 --load-model gemma-4-26b-a4b-it-qat --load-image ~/Pictures/test.png` (Flash on mlx-serve, Gemma on LM Studio) |
 | Probe context, cache and effort | `python3 ~/bin/llm-probe.py --suite all` |
 | Compare probe runs | `python3 ~/bin/llm-probe.py --summary llm-probe-history.csv` |
 | Memory per model | `python3 ~/bin/llm-mem.py` |
