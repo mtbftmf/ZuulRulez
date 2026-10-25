@@ -383,9 +383,8 @@ def _mlx_metrics_loop():
                 dec_sum = float(dec_h.get("sum",   0))
                 dec_cnt = float(dec_h.get("count", 0))
 
-                gen_total    = float(counters.get("generation_tokens_total", 0))
-                gen_live     = float(gauges.get("generation_tokens_live",    0))
-                requests_run = float(gauges.get("requests_running",          0))
+                gen_live     = float(gauges.get("generation_tokens_live", 0))
+                requests_run = float(gauges.get("requests_running",       0))
                 now          = time.time()
 
                 _state["mlx_requests_running"] = requests_run
@@ -399,17 +398,18 @@ def _mlx_metrics_loop():
                         _state["mlx_decode_tps"]    = d_out / d_dec
                         _state["mlx_decode_tps_ts"] = now
 
-                    # Live rate while generation is running
+                    # Live rate: Δgeneration_tokens_live / Δt while a request runs
+                    # generation_tokens_live is the cumulative counter (updated per token);
+                    # do NOT add generation_tokens_total — that would double-count.
                     dt = now - p["ts"]
                     if dt > 0 and requests_run > 0:
-                        combined_prev = p["gen_total"] + p["gen_live"]
-                        live_tps = ((gen_total + gen_live) - combined_prev) / dt
+                        live_tps = (gen_live - p["gen_live"]) / dt
                         if live_tps > 0:
                             _state["mlx_live_tps"]    = live_tps
                             _state["mlx_live_tps_ts"] = now
 
                 p.update(out_sum=out_sum, dec_sum=dec_sum, dec_cnt=dec_cnt,
-                         gen_total=gen_total, gen_live=gen_live, ts=now)
+                         gen_live=gen_live, ts=now)
 
             else:
                 # mlx-serve down — clear prev so we get a clean delta on restart
