@@ -31,7 +31,7 @@ UPDATE_MS       = 5000
 PM_INTERVAL     = 15
 LMS_URL         = "http://localhost:1234"
 LMS_BIN         = os.path.expanduser("~/.lmstudio/bin/lms")
-TPS_GRAPH_SCALE = 125.0     # 125 t/s = 100% of graph (gemma peaks ~118)
+TPS_GRAPH_SCALE = 120.0     # 120 t/s = 100% of graph (g4 peaks ~118, fls ~88)
 WIN_WIDTH       = 360
 WIN_HEIGHT      = 455       # 12 stat rows + taller graph
 STATS_HEIGHT    = 290
@@ -390,11 +390,12 @@ def _mlx_metrics_loop():
                 _state["mlx_requests_running"] = requests_run
 
                 # Decode t/s from completed-request histograms
+                # Guard on d_dec > 0 (time elapsed) rather than d_cnt > 0,
+                # because some mlx-serve builds don't increment count reliably.
                 if p:
                     d_dec = dec_sum - p["dec_sum"]
-                    d_cnt = dec_cnt - p["dec_cnt"]
                     d_out = out_sum - p["out_sum"]
-                    if d_cnt > 0 and d_dec > 0:
+                    if d_dec > 0 and d_out > 0:
                         _state["mlx_decode_tps"]    = d_out / d_dec
                         _state["mlx_decode_tps_ts"] = now
 
@@ -408,6 +409,9 @@ def _mlx_metrics_loop():
                             _state["mlx_live_tps"]    = live_tps
                             _state["mlx_live_tps_ts"] = now
 
+                log.debug("mlx poll: out_sum=%.1f dec_sum=%.4f gen_live=%.0f run=%.0f backend=%s",
+                          out_sum, dec_sum, gen_live, requests_run,
+                          _state.get("mlx_decode_tps", "—"))
                 p.update(out_sum=out_sum, dec_sum=dec_sum, dec_cnt=dec_cnt,
                          gen_live=gen_live, ts=now)
 
@@ -834,7 +838,7 @@ canvas { background:#0a0a0f;border:1px solid #ff6eb4;width:100%;height:160px;dis
 </div>
 <div class="updated" id="updated">Updated: …</div>
 <script>
-const WS=36000,PAD=30,ES=500,TS=125;
+const WS=36000,PAD=30,ES=500,TS=120;
 function drawGraph(mem,gpu,swp,eff,tps){
   const cv=document.getElementById('graph'),ctx=cv.getContext('2d');
   cv.width=cv.offsetWidth;cv.height=160;
