@@ -1,0 +1,13 @@
+{
+	auto_https disable_redirects
+}
+
+https://STUDIO-HOSTNAME.local:8443, https://STUDIO-LAN-IP:8443 {
+	tls internal
+	reverse_proxy 127.0.0.1:8080
+}
+
+https://STUDIO-HOSTNAME.local:9443, https://STUDIO-LAN-IP:9443 {
+	tls internal
+	reverse_proxy 127.0.0.1:9090
+}

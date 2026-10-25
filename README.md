@@ -14,6 +14,7 @@ Local LLM setup that runs two models side by side behind Open WebUI: Flash-Next 
 | Router / vision / tasks | `gemma-4-26b-a4b-it-qat` (13.4 GB) in LM Studio on `localhost:1234` (32K context, parallel 4, no LAN binding, no CORS, JIT off) |
 | Rollback | `FLASH_BACKEND=gguf` in `~/.config/macllm.env`: `flash-up.sh` stops mlx-serve and loads the AtomicChat `Qwen3.8-Flash-Next-AD-4.27bpw-Q4_K_M-M64` GGUF (88 GB) in LM Studio as `flash-next`. Kept until two weeks after the switch |
 | Front end | Open WebUI 0.12, launchd daemon on `:8080`, data in `~/open-webui-data` |
+| HTTPS | Caddy (`brew services`) with its own local CA: Open WebUI on `:8443`, System Monitor on `:9443`; HTTP ports still open. Setup, per-device CA trust and the two-network name issue: `m5/docs/m5-max-https.md` |
 | GPU wired limit | macOS default (`iogpu.wired_limit_mb` = 0, ~96 GB) |
 
 ## Measured (Oct 24-25, 2026: Flash on mlx-serve)
@@ -160,6 +161,8 @@ Token caps (v1.3.2): Auto builds its own request to the model server, so persona
 | Fix one line in every persona's system prompt | `owui-prompt-lines.py` (report), then `--apply`; rules in `~/.config/owui-prompt-lines.json` (example in `m5/config/`). Your personal system prompt (Persistent User Context) is not a persona: edit it in Settings → General, then reload the page |
 | Re-sort dropdown | `~/bin/owui-sort-models.sh` |
 | See where Auto would send a message | `/route <message>` in a throwaway Auto chat |
+| Restart HTTPS front end after editing `/opt/homebrew/etc/Caddyfile` | `brew services restart caddy` |
+| CA root to install on a new device | `/opt/homebrew/var/lib/caddy/pki/authorities/local/root.crt` |
 
 ## Repo layout
 
@@ -170,7 +173,7 @@ Token caps (v1.3.2): Auto builds its own request to the model server, so persona
 | `m5/openwebui/` | Open WebUI functions (router, filter) |
 | `m5/scripts/` | Optional helpers sourced by `m5/bin` scripts (`raid-guard.sh`; M5 Max only, off by default) |
 | `m5/config/` | Env templates; copy to `~/.config/` and fill in (never commit the filled-in file) |
-| `m5/docs/` | Host-specific notes, M5 Max only: system profile, Auto Router policy, external RAID0 tiering |
+| `m5/docs/` | Host-specific notes, M5 Max only: system profile, Auto Router policy, mlx-serve switch plan, local HTTPS, external RAID0 tiering |
 | `m5/templates/` | Stock and edited Flash-Next chat templates (GGUF rollback) |
 | `m5/tests/` | Fixed prompts for end-to-end comparisons (Test 1) |
 | `m1/` | Gemma-only installer and scripts for a 32 GB M1 Max Studio |
@@ -184,6 +187,8 @@ Install or update on the Mac: `./install.sh` (dry run), then `./install.sh --app
 Model weights, `~/open-webui-data`, Open WebUI exports or backups (they contain chats, memories and personal prompts), tokens, API keys, AWS credentials. `.gitignore` covers the common cases.
 
 ## Gotchas
+
+- HTTPS: `ERR_SSL_PROTOCOL_ERROR` means HTTPS went to a plain HTTP port (8080 / 9090); use 8443 / 9443. A `.local` name that fails while the IP works means the client is on the other subnet (see `m5/docs/m5-max-https.md`).
 
 - zsh: `#` is not a comment in pasted commands, `<placeholder>` text is read as a redirect, and `echo` turns `\n` inside JSON into real newlines; read JSON files with `jq` directly.
 - mlx-serve turns thinking off unless the request sends `chat_template_kwargs` `{"enable_thinking": true}`. New Flash personas need the custom parameter (copy with `owui-sync-flash.sh`).
