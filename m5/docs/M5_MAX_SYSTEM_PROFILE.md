@@ -89,7 +89,7 @@ Sections: `counters`, `gauges`, `decode_serial`, `histograms`, `sessions`.
 | --- | --- |
 | Decode tok/s per completed request | Δ`histograms.output_tokens.sum` / Δ`histograms.decode_time_seconds.sum` |
 | Prefill tok/s | Δ`histograms.prompt_tokens.sum` / Δ`histograms.prefill_time_seconds.sum` |
-| Live throughput | Δ(`counters.generation_tokens_total` + `gauges.generation_tokens_live`) / Δt while `gauges.requests_running` > 0 |
+| Live throughput | Δ`gauges.generation_tokens_live` / Δt while `gauges.requests_running` > 0. `generation_tokens_live` is the cumulative count updated per token (completed + in-flight); `counters.generation_tokens_total` catches up when a request finishes (both 519 at idle on Oct 25). Do not add them |
 | TTFT, end to end | `histograms.time_to_first_token_seconds`, `histograms.e2e_request_latency_seconds` (Δsum / Δcount) |
 | Load | `gauges.requests_running`, `requests_waiting`, `requests_prefilling`, `gpu_utilization_pct` |
 | Memory | `gauges.memory_mb`, `mlx_active_bytes`, `mlx_cache_bytes`, `ngram_warm_bytes` |
