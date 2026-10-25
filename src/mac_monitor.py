@@ -53,6 +53,8 @@ GRAPH_WINDOW    = 36000     # 10h desktop window (web JS uses its own WS=129600)
 WEB_PORT        = 9090
 EFF_GRAPH_SCALE = 500.0     # 500 %/W = 100% of graph (M5 Max GPU/W peaks ~300-400)
 LMS_IDLE_TIMEOUT  = 30      # seconds of silence before status → Idle
+MLX_URL           = "http://127.0.0.1:11234"
+MLX_POLL_INTERVAL = 5       # seconds between mlx-serve metrics polls
 
 MEM_DELTA_SAMPLES = 6
 SWP_DELTA_SAMPLES = 12
@@ -341,6 +343,188 @@ def get_lms_model_color(abbrev, stat_key):
     return base
 
 
+# ── mlx-serve metrics poller ─────────────────────────────────────────────────
+
+def _mlx_fetch_json(path):
+    """GET from mlx-serve; return parsed JSON or None on any error."""
+    try:
+        req = urllib.request.Request(
+            f"{MLX_URL}{path}",
+            headers={"Accept": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=3) as resp:
+            return json.loads(resp.read().decode())
+    except Exception:
+        return None
+
+
+def _mlx_metrics_loop():
+    """
+    Poll mlx-serve /metrics.json every MLX_POLL_INTERVAL seconds.
+    Stores Flash tok/s in _state. Falls back to LMS if mlx-serve is down.
+    _state["fls_backend"] = "mlx" | "lms" | "off"
+    """
+    p = {}   # persistent across iterations: prev_output_sum, prev_decode_sum, etc.
+
+    while True:
+        try:
+            metrics = _mlx_fetch_json("/metrics.json")
+
+            if metrics is not None:
+                _state["fls_backend"] = "mlx"
+
+                histograms   = metrics.get("histograms", {})
+                counters     = metrics.get("counters",   {})
+                gauges       = metrics.get("gauges",     {})
+
+                out_h  = histograms.get("output_tokens",       {})
+                dec_h  = histograms.get("decode_time_seconds", {})
+                out_sum = float(out_h.get("sum",   0))
+                dec_sum = float(dec_h.get("sum",   0))
+                dec_cnt = float(dec_h.get("count", 0))
+
+                gen_total    = float(counters.get("generation_tokens_total", 0))
+                gen_live     = float(gauges.get("generation_tokens_live",    0))
+                requests_run = float(gauges.get("requests_running",          0))
+                now          = time.time()
+
+                _state["mlx_requests_running"] = requests_run
+
+                # Decode t/s from completed-request histograms
+                if p:
+                    d_dec = dec_sum - p["dec_sum"]
+                    d_cnt = dec_cnt - p["dec_cnt"]
+                    d_out = out_sum - p["out_sum"]
+                    if d_cnt > 0 and d_dec > 0:
+                        _state["mlx_decode_tps"]    = d_out / d_dec
+                        _state["mlx_decode_tps_ts"] = now
+
+                    # Live rate while generation is running
+                    dt = now - p["ts"]
+                    if dt > 0 and requests_run > 0:
+                        combined_prev = p["gen_total"] + p["gen_live"]
+                        live_tps = ((gen_total + gen_live) - combined_prev) / dt
+                        if live_tps > 0:
+                            _state["mlx_live_tps"]    = live_tps
+                            _state["mlx_live_tps_ts"] = now
+
+                p.update(out_sum=out_sum, dec_sum=dec_sum, dec_cnt=dec_cnt,
+                         gen_total=gen_total, gen_live=gen_live, ts=now)
+
+            else:
+                # mlx-serve down — clear prev so we get a clean delta on restart
+                p.clear()
+
+                # Check LMS for GGUF flash-next rollback
+                try:
+                    lms_req = urllib.request.Request(
+                        f"{LMS_URL}/v1/models",
+                        headers={"Accept": "application/json"},
+                    )
+                    with urllib.request.urlopen(lms_req, timeout=3) as resp:
+                        lms_data = json.loads(resp.read().decode())
+                    ids = [m.get("id", "") for m in lms_data.get("data", [])]
+                    has_flash = any("flash" in mid.lower() for mid in ids)
+                    _state["fls_backend"] = "lms" if has_flash else "off"
+                except Exception:
+                    _state["fls_backend"] = "off"
+
+        except Exception as e:
+            log.warning("mlx_metrics_loop error: %s", e)
+            _state["fls_backend"] = "off"
+            p.clear()
+
+        time.sleep(MLX_POLL_INTERVAL)
+
+
+def get_fls_display():
+    """
+    Return FLS tok/s display string and source tag.
+    - mlx backend: live rate if running, else last decode t/s, else "—"
+    - lms backend (GGUF rollback): last t/s from lms_tps_per_model["flash"]
+    - off: "—"
+    Returns (text, is_gguf_rollback).
+    """
+    backend = _state.get("fls_backend", "off")
+    now     = time.time()
+
+    if backend == "mlx":
+        # Prefer live rate if a request is actively running and rate is fresh
+        if _state.get("mlx_requests_running", 0) > 0:
+            live    = _state.get("mlx_live_tps")
+            live_ts = _state.get("mlx_live_tps_ts", 0)
+            if live and (now - live_ts < MLX_POLL_INTERVAL * 3):
+                return f"{live:.1f}~", False   # ~ suffix = live estimate
+        # Fall back to last completed-request decode t/s
+        tps    = _state.get("mlx_decode_tps")
+        tps_ts = _state.get("mlx_decode_tps_ts", 0)
+        if tps and (now - tps_ts < 3600):
+            return f"{tps:.1f}", False
+        return "—", False
+
+    if backend == "lms":
+        pm    = _state.get("lms_tps_per_model", {})
+        entry = pm.get("flash")
+        s     = _state.get("lms_status", "Off")
+        if s != "Off" and entry and (now - entry["ts"] < 3600):
+            return f"{entry['tps']:.1f}", True   # True = GGUF rollback
+        return "—", True
+
+    return "—", False
+
+
+def get_fls_color():
+    """FLS row color: bright for mlx, dimmer violet for GGUF rollback, dim for off."""
+    backend = _state.get("fls_backend", "off")
+    if backend == "mlx":
+        tps    = _state.get("mlx_decode_tps")
+        tps_ts = _state.get("mlx_decode_tps_ts", 0)
+        live   = _state.get("mlx_requests_running", 0) > 0
+        if live or (tps and (time.time() - tps_ts < 3600)):
+            return STAT_COLORS["FLS"]
+        return "#444455"
+    if backend == "lms":
+        pm    = _state.get("lms_tps_per_model", {})
+        entry = pm.get("flash")
+        s     = _state.get("lms_status", "Off")
+        if s != "Off" and entry and (time.time() - entry["ts"] < 3600):
+            return "#8844aa"   # dimmer violet = GGUF rollback indicator
+        return "#444455"
+    return "#444455"
+
+
+def get_fls_label():
+    """Row label: 'fls t/s' for mlx, 'fls* t/s' for GGUF rollback."""
+    backend = _state.get("fls_backend", "off")
+    if backend == "lms":
+        return "fls* t/s"
+    return "fls t/s"
+
+
+def get_mem_pressure_color():
+    """
+    MEM row color from kernel memorystatus_vm_pressure_level:
+    1=normal (green), 2=warn (yellow), 4=critical (red).
+    Falls back to avail_pct threshold if sysctl fails.
+    """
+    try:
+        out = subprocess.check_output(
+            ["sysctl", "kern.memorystatus_vm_pressure_level"],
+            text=True, timeout=2,
+        )
+        level = int(out.split(":")[-1].strip())
+        if level >= 4:
+            return PRESSURE_COLORS["Red"]
+        if level >= 2:
+            return PRESSURE_COLORS["Yellow"]
+        return PRESSURE_COLORS["Green"]
+    except Exception:
+        # fallback: avail_pct threshold
+        with _state_lock:
+            a = _state.get("mem_avail_pct", 100)
+        return PRESSURE_COLORS["Green"] if a > 20 else PRESSURE_COLORS["Yellow"] if a > 5 else PRESSURE_COLORS["Red"]
+
+
 # ── Background data collection thread ────────────────────────────────────────
 
 def _data_loop():
@@ -452,7 +636,7 @@ def get_memory_pressure():
         u = _state.get("mem_used_pct"); a = _state.get("mem_avail_pct")
         mn = _mem_min; mx = _mem_max
     if u is None: return "…", "#ffffff"
-    c = PRESSURE_COLORS["Green"] if a>20 else PRESSURE_COLORS["Yellow"] if a>5 else PRESSURE_COLORS["Red"]
+    c = get_mem_pressure_color()
     mn = mn if mn is not None else u; mx = mx if mx is not None else u
     return f"{mn:.0f}% {u:.0f}%{_mem_arrow()} {mx:.0f}%", c
 
@@ -461,8 +645,7 @@ def get_mem_pct():
     return f"{pct:.0f}%" if pct is not None else "…"
 
 def get_mem_color():
-    with _state_lock: a = _state.get("mem_avail_pct", 100)
-    return PRESSURE_COLORS["Green"] if a>20 else PRESSURE_COLORS["Yellow"] if a>5 else PRESSURE_COLORS["Red"]
+    return get_mem_pressure_color()
 
 def get_ssd_usage():    return f"{psutil.disk_usage('/System/Volumes/Data').percent:.0f}%"
 
@@ -720,6 +903,7 @@ function upd(d){
   document.getElementById('v-FLS').textContent=d.FLS;
   document.getElementById('v-FLS').style.color=d.FLS_COLOR;
   document.getElementById('l-FLS').style.color=d.FLS_COLOR;
+  if(d.FLS_LABEL) document.getElementById('l-FLS').textContent=d.FLS_LABEL;
   document.getElementById('updated').textContent='Updated: '+d.updated;
   drawGraph(d.mem_history,d.gpu_history,d.swp_history,d.eff_history,d.tps_history);
 }
@@ -735,6 +919,7 @@ window.addEventListener('resize',()=>fetch('/api').then(r=>r.json()).then(d=>
 @flask_app.route("/")
 def dashboard():
     mt, mc = get_memory_pressure(); tt, tc = get_thermal()
+    fls_val, _ = get_fls_display()
     with _state_lock:
         ms=list(_mem_history); gs=list(_gpu_history); ss=list(_swp_history)
         es=list(_eff_history); ts=list(_tps_history)
@@ -743,14 +928,16 @@ def dashboard():
                "SSD":get_ssd_usage(),"GHz":get_cpu_freq_ghz(),"GPU":get_gpu_residency(),
                "PWR":get_cpu_power(),"SWP":get_swap_used(),"THM":tt,"THM_COLOR":tc,
                "EFF":get_efficiency(),
-               "G4":get_lms_model_display("g4"),   "G4_COLOR":get_lms_model_color("g4",   "G4"),
-               "FLS":get_lms_model_display("flash"),"FLS_COLOR":get_lms_model_color("flash","FLS")},
+               "G4":get_lms_model_display("g4"), "G4_COLOR":get_lms_model_color("g4", "G4"),
+               "FLS":fls_val, "FLS_COLOR":get_fls_color(),
+               "FLS_LABEL":get_fls_label()},
         mem_history=ms,gpu_history=gs,swp_history=ss,eff_history=es,tps_history=ts,
         updated=time.strftime("%Y-%m-%d %H:%M:%S"))
 
 @flask_app.route("/api")
 def api():
     mt, mc = get_memory_pressure(); tt, tc = get_thermal()
+    fls_val, _ = get_fls_display()
     with _state_lock:
         ms=list(_mem_history); gs=list(_gpu_history); ss=list(_swp_history)
         es=list(_eff_history); ts=list(_tps_history)
@@ -759,8 +946,8 @@ def api():
         "SSD":get_ssd_usage(),"GHz":get_cpu_freq_ghz(),"GPU":get_gpu_residency(),
         "PWR":get_cpu_power(),"SWP":get_swap_used(),"THM":tt,"THM_COLOR":tc,
         "EFF":get_efficiency(),
-        "G4":get_lms_model_display("g4"),    "G4_COLOR":get_lms_model_color("g4",    "G4"),
-        "FLS":get_lms_model_display("flash"), "FLS_COLOR":get_lms_model_color("flash", "FLS"),
+        "G4":get_lms_model_display("g4"), "G4_COLOR":get_lms_model_color("g4", "G4"),
+        "FLS":fls_val, "FLS_COLOR":get_fls_color(), "FLS_LABEL":get_fls_label(),
         "mem_history":ms,"gpu_history":gs,"swp_history":ss,
         "eff_history":es,"tps_history":ts,
         "updated":time.strftime("%Y-%m-%d %H:%M:%S"),
@@ -843,8 +1030,10 @@ class MonitorApp:
         for i, (key, prefix) in enumerate(stats):
             y = row_start_y + i * row_h + row_h // 2
             color = STAT_COLORS[key]
+            tags = ("fls_label",) if key == "FLS" else ()
             self.canvas.create_text(12, y, text=prefix,
-                font=(FONT_FAMILY, FONT_SIZE-1, "bold"), fill=color, anchor="w")
+                font=(FONT_FAMILY, FONT_SIZE-1, "bold"), fill=color, anchor="w",
+                tags=tags)
             item = self.canvas.create_text(STATS_WIDTH-6, y, text="…",
                 font=(FONT_FAMILY, FONT_SIZE, "bold"), fill=color, anchor="e")
             self.value_items[key] = item
@@ -958,10 +1147,15 @@ class MonitorApp:
             self.canvas.itemconfig(self.value_items["MEM"], text=pressure, fill=mem_color)
             self.canvas.itemconfig(self.value_items["THM"], text=thm_txt, fill=thm_color)
             self.canvas.itemconfig(self.value_items["EFF"], text=get_efficiency())
-            g4_color  = get_lms_model_color("g4",    "G4")
-            fls_color = get_lms_model_color("flash",  "FLS")
-            self.canvas.itemconfig(self.value_items["G4"],  text=get_lms_model_display("g4"),    fill=g4_color)
-            self.canvas.itemconfig(self.value_items["FLS"], text=get_lms_model_display("flash"),  fill=fls_color)
+            g4_color           = get_lms_model_color("g4", "G4")
+            fls_txt, fls_gguf  = get_fls_display()
+            fls_color          = get_fls_color()
+            fls_lbl            = get_fls_label()
+            self.canvas.itemconfig(self.value_items["G4"],  text=get_lms_model_display("g4"), fill=g4_color)
+            self.canvas.itemconfig(self.value_items["FLS"], text=fls_txt,                      fill=fls_color)
+            # Update FLS row label text in-place (changes "fls t/s" ↔ "fls* t/s")
+            for item_id in self.canvas.find_withtag("fls_label"):
+                self.canvas.itemconfig(item_id, text=fls_lbl, fill=fls_color)
             self.draw_graph()
         else:
             self._mini_mem.config(text=f"MEM:{mem_pct}", fg=gui_mem_color)
@@ -969,8 +1163,9 @@ class MonitorApp:
             self._mini_swp.config(text=f"SWP:{swp_txt}")
             self._mini_g4.config(text=f"g4:{get_lms_model_display('g4')}",
                                  fg=get_lms_model_color('g4', 'G4'))
-            self._mini_fls.config(text=f"fls:{get_lms_model_display('flash')}",
-                                  fg=get_lms_model_color('flash', 'FLS'))
+            fls_txt, _  = get_fls_display()
+            fls_pfx     = "fls*" if _state.get("fls_backend") == "lms" else "fls"
+            self._mini_fls.config(text=f"{fls_pfx}:{fls_txt}", fg=get_fls_color())
 
         self._save_counter += 1
         if self._save_counter >= 24:
@@ -989,6 +1184,7 @@ if __name__ == "__main__":
     threading.Thread(target=_web_server,  daemon=True).start()
     threading.Thread(target=_lms_log_stream,    daemon=True).start()
     threading.Thread(target=_lms_idle_watchdog, daemon=True).start()
+    threading.Thread(target=_mlx_metrics_loop,  daemon=True).start()
     psutil.cpu_percent(interval=0.1)
     root = tk.Tk()
     MonitorApp(root)
