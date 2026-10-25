@@ -1,7 +1,7 @@
 """
 title: Auto Router (Gemma ⇄ Flash-Next)
 author: Pdl_Pwr
-version: 1.4.0
+version: 1.4.1
 description: One "Auto" model. Quick requests go to Gemma 4 26B-A4B (LM Studio), clearly complex
              ones to Qwen3.8-Flash-Next (medium effort; mlx-serve since v1.4.0).
              Prefixes: /flash or /strong, /gemma or /fast, /deep (Flash at xhigh effort),
@@ -11,9 +11,16 @@ description: One "Auto" model. Quick requests go to Gemma 4 26B-A4B (LM Studio),
              v1.3.3: conversations too big for Gemma's context go to Flash.
              v1.3.4: Flash-Next has vision (mmproj); /flash and /deep accept images.
              v1.4.0: Flash on its own server (STRONG_URL); effort sent as chat_template_kwargs.
+             v1.4.1: prefixes work on messages with attachments.
 requirements: httpx
 """
 
+# v1.4.1 changes (Oct 24 2026)
+# - Open WebUI puts an <attached_files>...</attached_files> block in front of the typed text when a
+#   file or image is attached, so "/flash describe this" with an image never matched the prefix and
+#   went to Gemma ("image attached"). Leading <attached_files> blocks are now set aside before the
+#   prefix, length and keyword checks, and kept in the forwarded message.
+#
 # v1.4.0 changes (Oct 24 2026)
 # - Flash-Next moved to mlx-serve (127.0.0.1:11234); Gemma stays on LM Studio. STRONG_URL is the
 #   Flash server (empty = LMSTUDIO_URL, as before). Gemma and the classifier use LMSTUDIO_URL.
@@ -80,6 +87,15 @@ TRIVIAL_RE = re.compile(
 CODE_INTENT_RE = re.compile(
     r"\b(debug|fix|error|traceback|stack trace|refactor|review|optimi[sz]e|implement|write|complete|"
     r"why does|doesn't work|does not work|fails?|failing|broken)\b", re.I)
+
+
+LEAD_BLOCK_RE = re.compile(r"^\s*(?:<attached_files>.*?</attached_files>\s*)+", re.S)
+
+
+def split_lead(text: str) -> tuple:
+    """(leading Open WebUI <attached_files> block(s), the text the user typed)."""
+    m = LEAD_BLOCK_RE.match(text or "")
+    return (m.group(0), text[m.end():]) if m else ("", text or "")
 
 
 DEFAULT_DEEP_PHRASES = ("think hard, think harder, think carefully, think deeply, think it through, deep dive, "
@@ -256,7 +272,7 @@ class Pipe:
         A Gemma route that would overflow Gemma's context goes to Flash, or is trimmed when Gemma is required."""
         users = [m for m in messages if m.get("role") == "user"]
         text, has_img = self._text_and_images(users[-1].get("content")) if users else ("", False)
-        forced_fast = bool(re.match(r"^(/route\b\s*)?/(gemma|fast)\b", text.lstrip(), re.I))
+        forced_fast = bool(re.match(r"^(/route\b\s*)?/(gemma|fast)\b", split_lead(text)[1].lstrip(), re.I))
         use_strong, deep, reason, dry_run = await self._route(messages)
         if not use_strong:
             use_strong, reason = self._fit_fast(messages, reason, must_fast=forced_fast or (has_img and not self.valves.STRONG_HAS_VISION))
@@ -268,18 +284,19 @@ class Pipe:
             return False, False, "no user message", False
         last = users[-1]
         text, has_img = self._text_and_images(last.get("content"))
-        stripped = text.lstrip()
+        lead, typed = split_lead(text)
+        stripped = typed.lstrip()
 
         m = re.match(r"^/route\b\s*", stripped, re.I)
         if m:
-            self._set_text(last, stripped[m.end():])
+            self._set_text(last, lead + stripped[m.end():])
             use_strong, deep, reason, _ = await self._route(messages)
             return use_strong, deep, reason, True
 
         m = re.match(r"^/(flash|strong|gemma|fast|deep)\b\s*", stripped, re.I)
         if m:
             cmd = m.group(1).lower()
-            self._set_text(last, stripped[m.end():])
+            self._set_text(last, lead + stripped[m.end():])
             if cmd in ("gemma", "fast"):
                 return False, False, f"forced with /{cmd}", False
             if has_img and not self.valves.STRONG_HAS_VISION:

@@ -51,7 +51,7 @@ M-series Studios using a houdini account for friends and family hosting.
 - LENGTH_THRESHOLD should be 1800 or higher for this machine.
 - LONG_CHAT_TURNS should be off by default, or at most 25 with complexity scoring.
 - Small code fences must not force Flash-Next by themselves.
-- Router version: v1.4.0. Do not deploy v1.2 (d01095e): it drops the deep route and caps.
+- Router version: v1.4.1. Do not deploy v1.2 (d01095e): it drops the deep route and caps.
 - Effort (EFFORT_MODE kwargs, default): every Flash request carries
   chat_template_kwargs {enable_thinking: true, reasoning_effort: medium}, xhigh for /deep,
   DEEP_PHRASES or DEEP_SCORE. mlx-serve turns thinking OFF when a request omits it, and
