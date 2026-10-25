@@ -114,7 +114,8 @@ Token caps (v1.3.2): Auto builds its own request to LM Studio, so persona `max_t
 
 ## Open WebUI setup
 
-- Connection: OpenAI API `http://localhost:1234/v1`, no prefix; Ollama and Direct Connections off.
+- Connections: OpenAI API `http://localhost:1234/v1` (LM Studio, Gemma) and `http://127.0.0.1:11234/v1` (mlx-serve, `flash-next`), no key, no prefix; Ollama and Direct Connections off. `flash-next` must appear once in the model list.
+- Flash-* personas carry the custom parameter `chat_template_kwargs` = `{"enable_thinking": true, "reasoning_effort": "medium"}` (`xhigh` on Flash-IT-Deep). Without it mlx-serve answers with thinking off. Copy to new personas with `REF=muse-general PARAM_KEYS=custom_params owui-sync-flash.sh`.
 - Task Model: Gemma (titles, tags, follow-ups never hit Flash).
 - Personas: Flash-* (Chef, Clarinet-Sax Musician, Finance, General, Guitar Musician, IT, IT-Deep, Scripting) and Gemma-* (same set minus IT-Deep), plus Auto. Built-in tools off on all of them.
 - Dropdown order: Auto first, then A–Z (`owui-sort-models.sh`).
