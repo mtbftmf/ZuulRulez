@@ -38,6 +38,23 @@ import urllib.request
 import uuid
 from datetime import datetime
 
+# Servers on this Mac, tried in order when --url is not given: mlx-serve (Flash-Next since Oct 24)
+# and LM Studio (Gemma; Flash-Next GGUF in the rollback case). Override with LLM_SERVERS.
+SERVERS = [u.strip() for u in os.environ.get(
+    "LLM_SERVERS", "http://127.0.0.1:11234/v1,http://localhost:1234/v1").split(",") if u.strip()]
+
+
+def find_server(model):
+    """First server in SERVERS whose /models lists `model`; LM Studio if none answers with it."""
+    for url in SERVERS:
+        try:
+            with urllib.request.urlopen(url.rstrip("/") + "/models", timeout=3) as r:
+                if model in [m.get("id") for m in json.load(r).get("data", [])]:
+                    return url
+        except Exception:
+            continue
+    return SERVERS[-1] if SERVERS else "http://localhost:1234/v1"
+
 PROMPTS = {
     "code": "Write a Python function that merges overlapping intervals in a list of "
             "[start, end] pairs. Include a short docstring and two test cases.",
@@ -61,7 +78,7 @@ def list_models(base_url, timeout=10):
         with urllib.request.urlopen(base_url + "/models", timeout=timeout) as r:
             return [m.get("id") for m in json.load(r).get("data", [])]
     except Exception as e:  # noqa: BLE001
-        sys.exit(f"Cannot reach {base_url}/models: {e}\nIs the LM Studio server running?")
+        sys.exit(f"Cannot reach {base_url}/models: {e}\nIs the server running? (flash-up.sh starts both)")
 
 
 def stream_chat(base_url, model, messages, max_tokens, seed, timeout):
@@ -286,7 +303,7 @@ def interpret(results):
 
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--url", default="http://localhost:1234/v1")
+    p.add_argument("--url", default="", help="base URL (default: whichever local server lists --model)")
     p.add_argument("--model", default="flash-next", help="model identifier as shown by `lms ps`")
     p.add_argument("--suite", default="quick", choices=["quick", "effort", "ctx", "cache", "all"])
     p.add_argument("--runs", type=int, default=3, help="repeats per test (quick/effort)")
@@ -307,6 +324,8 @@ def main():
         summarize(args.summary)
         return
 
+    if not args.url:
+        args.url = find_server(args.model)
     models = list_models(args.url)
     if args.model not in models:
         print(f"warning: '{args.model}' not in /models ({', '.join(models)})", file=sys.stderr)

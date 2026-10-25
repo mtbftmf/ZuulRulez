@@ -4,8 +4,8 @@ llm-bench.py — repeatable tok/s benchmark for any OpenAI-compatible local serv
 (LM Studio, llama-server, Ollama, Atomic Chat, mlx-serve ...). Python 3 stdlib only.
 
 Usage:
-  python3 llm-bench.py --model flash-next                       # LM Studio default URL
-  python3 llm-bench.py --model flash-next --url http://localhost:1234/v1
+  python3 llm-bench.py --model flash-next                       # finds the server serving it
+  python3 llm-bench.py --model flash-next --url http://127.0.0.1:11234/v1
   python3 llm-bench.py --model qwen3.8 --url http://localhost:11434/v1   # Ollama
 
   python3 llm-bench.py --model flash-next --long-ctx 28000      # + decode speed deep in a long context
@@ -43,8 +43,9 @@ Options:
                 read back from SSD.
   --load-model  keep a second model busy (back-to-back requests) for the whole benchmark, to
                 measure the main model under contention. --load-image sends an image with each
-                of those requests (vision workload). --load-url sends that load to another server
-                (default: --url), e.g. Gemma on LM Studio while Flash is measured on mlx-serve.
+                of those requests (vision workload). The load goes to whichever local server lists
+                that model (--load-url to force one), e.g. Gemma on LM Studio while Flash is
+                measured on mlx-serve.
 
 Decode tok/s counts every generated token, including reasoning/thinking tokens; the gen test
 also shows how many of them were reasoning vs answer. For effort A/B on your own prompt use
@@ -53,6 +54,23 @@ llm-probe.py --suite effort --effort-prompt "...".
 import argparse, base64, json, mimetypes, os, platform, re, statistics, subprocess, sys, threading, time
 from datetime import datetime
 import urllib.request, urllib.error
+
+# Servers on this Mac, tried in order when --url is not given: mlx-serve (Flash-Next since Oct 24)
+# and LM Studio (Gemma; Flash-Next GGUF in the rollback case). Override with LLM_SERVERS.
+SERVERS = [u.strip() for u in os.environ.get(
+    "LLM_SERVERS", "http://127.0.0.1:11234/v1,http://localhost:1234/v1").split(",") if u.strip()]
+
+
+def find_server(model):
+    """First server in SERVERS whose /models lists `model`; LM Studio if none answers with it."""
+    for url in SERVERS:
+        try:
+            with urllib.request.urlopen(url.rstrip("/") + "/models", timeout=3) as r:
+                if model in [m.get("id") for m in json.load(r).get("data", [])]:
+                    return url
+        except Exception:
+            continue
+    return SERVERS[-1] if SERVERS else "http://localhost:1234/v1"
 
 GEN_PROMPT = ("Write a detailed, technical explanation of how a CPU cache hierarchy works "
               "(L1, L2, L3, cache lines, associativity, write-back vs write-through, coherence). "
@@ -421,7 +439,7 @@ def show_history(path, n=20):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--model", help="model ID as your server lists it (required unless --history)")
-    ap.add_argument("--url", default="http://localhost:1234/v1", help="OpenAI-compatible base URL")
+    ap.add_argument("--url", default="", help="OpenAI-compatible base URL (default: whichever local server lists --model)")
     ap.add_argument("--api-key", default="local")
     ap.add_argument("--runs", type=int, default=3)
     ap.add_argument("--engine", default="", help="label for the summary, e.g. 'LM Studio 0.4 GGUF'")
@@ -431,7 +449,7 @@ def main():
     ap.add_argument("--mem", action="store_true", help="macOS: sample memory during each test")
     ap.add_argument("--load-model", default="", help="second model to keep busy during the benchmark")
     ap.add_argument("--load-image", default="", help="image file sent with each --load-model request")
-    ap.add_argument("--load-url", default="", help="base URL for --load-model (default: --url)")
+    ap.add_argument("--load-url", default="", help="base URL for --load-model (default: whichever local server lists it)")
     ap.add_argument("--sweep", default="", metavar="N,N,...",
                     help="prefill + decode at these prompt sizes (e.g. 16000,24000,30000)")
     ap.add_argument("--sweep-runs", type=int, default=2, help="runs per sweep size (default 2, no warm-up)")
@@ -447,6 +465,8 @@ def main():
         show_history(a.history_file); return
     if not a.model:
         ap.error("--model is required")
+    if not a.url:
+        a.url = find_server(a.model)
     try:
         sweep = [int(x) for x in a.sweep.split(",") if x.strip()]
     except ValueError:
@@ -467,9 +487,9 @@ def main():
     print(f"Machine: {m}\nModel: {a.model} @ {a.url}")
     load = None
     if a.load_model:
-        load_url = a.load_url or a.url
+        load_url = a.load_url or find_server(a.load_model)
         print(f"Background load: {a.load_model}{' + image ' + os.path.basename(a.load_image) if a.load_image else ''}"
-              + (f" @ {load_url}" if a.load_url else ""))
+              + f" @ {load_url}")
         load = BackgroundLoad(load_url, a.load_model, a.api_key, a.load_image or None).start()
     if a.mem:
         s = mem_snapshot()
