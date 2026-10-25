@@ -157,7 +157,7 @@ Token caps (v1.3.2): Auto builds its own request to the model server, so persona
 | Memory per model | `python3 ~/bin/llm-mem.py` (GGUF models; for Flash on mlx-serve use `memory_mb` in `/metrics.json`) |
 | Watch Gemma requests | `~/.lmstudio/bin/lms log stream` |
 | Copy a persona setting to sibling personas | `owui-sync-flash.sh` (report → dry run → `DRY_RUN=0`) |
-| Fix one line in every persona's system prompt (e.g. the Persistent User Context) | `owui-prompt-lines.py` (report), then `--apply`; rules in `~/.config/owui-prompt-lines.json` (example in `m5/config/`) |
+| Fix one line in every persona's system prompt | `owui-prompt-lines.py` (report), then `--apply`; rules in `~/.config/owui-prompt-lines.json` (example in `m5/config/`). Your personal system prompt (Persistent User Context) is not a persona: edit it in Settings → General, then reload the page |
 | Re-sort dropdown | `~/bin/owui-sort-models.sh` |
 | See where Auto would send a message | `/route <message>` in a throwaway Auto chat |
 

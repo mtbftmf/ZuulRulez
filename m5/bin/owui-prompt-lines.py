@@ -3,9 +3,9 @@
 owui-prompt-lines.py — replace (or delete) single lines in the system prompts of Open WebUI personas,
 leaving everything else in each prompt untouched. Python 3 stdlib only.
 
-Why: the "Persistent User Context" block is copied into each persona's own system prompt, so a
-stale line (old engine, port or path) has to be fixed in every persona, and owui-sync-flash.sh would
-overwrite whole prompts.
+Use it when the same stale line (old engine, port or path) sits in many personas' system prompts;
+owui-sync-flash.sh would overwrite whole prompts. It does not touch your personal system prompt
+(Settings → General → System Prompt, stored as ui.system in user settings); edit that one in the UI.
 
 Rules file (JSON, default ~/.config/owui-prompt-lines.json; keep it out of the repo if it holds a
 LAN address). Each rule replaces the first line whose text, after leading spaces, starts with "prefix" and
