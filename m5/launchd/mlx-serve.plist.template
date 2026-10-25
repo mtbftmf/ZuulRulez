@@ -13,6 +13,7 @@
     <string>--mtp</string>
     <string>--no-pld</string>
     <string>--max-concurrent</string><string>2</string>
+    <string>--metrics</string>
   </array>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
