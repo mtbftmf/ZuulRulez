@@ -33,7 +33,7 @@ Idle baseline is ~18 GB wired; with both models generating at once, peak wired i
 
 Both models together: ~89 GB real memory (`llm-mem.py`). Flash's 35.8 GB per-layer embedding table stays mostly on SSD via mmap (~6 GB resident).
 
-Test 1 (3-part Raspberry Pi Wi-Fi troubleshooting prompt), end to end: ~7.5 min out of the box → ~4 min after prompt cleanup → **~35 s** at medium effort. Generation speed never changed; the gain is less wasted reasoning.
+Test 1 ([Raspberry Pi Wi-Fi troubleshooting prompt](m5/tests/test1-pi-wifi.md)), end to end in Open WebUI: ~7.5 min out of the box → ~4 min after prompt cleanup → **~35 s** at medium effort. Generation speed never changed; the gain is less wasted reasoning.
 
 ![Efficiency](docs/images/flash-next-tuning.png)
 
