@@ -104,6 +104,17 @@ else
   done
   [[ $ready == 1 ]] || die "mlx-serve not serving $FLASH_ID after ${MLX_WAIT}s (log: ~/.mlx-serve/logs/mlx-serve-11234.log)"
   echo " ✓"
+  # After a reboot macOS compresses the idle weights; the first request decompresses and wires them
+  # (~3 s, compressor 41 GB -> 0.4 GB, wired 18 -> 88 GB on Oct 25). Pay that here, not in the first chat.
+  printf "→ Warming Flash weights "
+  t0=$SECONDS
+  if curl -fsS -m 180 "$MLX_URL/v1/chat/completions" -H 'Content-Type: application/json' \
+       -d "{\"model\":\"$FLASH_ID\",\"max_tokens\":1,\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}" \
+       >/dev/null 2>&1; then
+    echo "✓ ($(( SECONDS - t0 )) s)"
+  else
+    echo "failed (not fatal; the first chat will be slower)"
+  fi
   FLASH_API="$MLX_URL"
 fi
 
