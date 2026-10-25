@@ -1,0 +1,5 @@
+[
+  {"prefix": "- LLM stack:", "line": "- LLM stack: Open WebUI with Flash-Next (ID flash-next, workhorse) on mlx-serve at http://127.0.0.1:11234/v1 and Gemma 4 26B-A4B QAT (fast router/vision) on LM Studio at http://localhost:1234/v1, both local only. \"Auto\" routes between them."},
+  {"prefix": "- API:", "line": "- UI: http://YOUR-MAC-LAN-ADDRESS:8080 (Open WebUI, LAN)"},
+  {"prefix": "- Scripts:", "line": "- Scripts: ~/bin/ holds the stack scripts (flash-up.sh, flash-down.sh, llm-bench.py, llm-probe.py, owui-*.sh; links into ~/ZuulRulez/m5/bin) | ~/scripts/ holds other scripts | Python venv: ~/open-webui-venv"}
+]
