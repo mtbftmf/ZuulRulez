@@ -1,7 +1,7 @@
 # M5 Max System Profile (Flash-Next workhorse)
 
 Applies ONLY to the M5 Max Studio 128 GB host. Generic M-series Studios running the
-Gemma 4 build for friends-and-family hosting (houdini account, `m1/` scripts) do not
+Gemma 4 build for friends-and-family hosting (houdini account, `gemma/` folder) do not
 use any of this: no Flash-Next, no mlx-serve, no 128 GB memory budget.
 
 Current as of 2026-10-25. Dated history is in `CHANGELOG.md`; the switch from the

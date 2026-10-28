@@ -1,5 +1,7 @@
 # MacLLM: dual-LLM stack on a Mac Studio M5 Max
 
+Generic single-model Gemma 4 builds for other Studios live in [`gemma/`](gemma/README.md); everything else in this README is the M5 Max.
+
 Local LLM setup that runs two models side by side behind Open WebUI: Flash-Next in mlx-serve and Gemma 4 in LM Studio, with a scoring router that picks a model (and reasoning effort) per message. Everything runs on the Mac; both model servers are localhost-only.
 
 ![Environment](docs/images/llm-environment.png)
@@ -176,7 +178,7 @@ Token caps (v1.3.2): Auto builds its own request to the model server, so persona
 | `m5/docs/` | Host-specific notes, M5 Max only: system profile, Auto Router policy, mlx-serve switch plan, local HTTPS, external RAID0 tiering |
 | `m5/templates/` | Stock and edited Flash-Next chat templates (GGUF rollback) |
 | `m5/tests/` | Fixed prompts for end-to-end comparisons (Test 1) |
-| `m1/` | Gemma-only installer and scripts for a 32 GB M1 Max Studio |
+| `gemma/` | Generic Gemma 4 builds for other M-series Studios (houdini account, friends-and-family hosting): installer, up/down scripts, rebuild scripts (preflight, Golden Gate upgrade, bootstrap, verify), runbook, Open WebUI memory text. See `gemma/README.md`; none of the M5 stack applies there |
 | `docs/images/` | Diagram and efficiency chart |
 | `CHANGELOG.md` | Dated history of changes and measured results |
 
