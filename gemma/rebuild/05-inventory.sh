@@ -55,8 +55,11 @@ dscl . -list /Users UniqueID | awk '$2 >= 500' | sort -k2n > "$OUT/all-users.tsv
 # ---- apps: name, bundle id, version, App Store?, size KB, path
 appline() {
   local a="$1" plist="$1/Contents/Info.plist" id ver mas kb
-  id=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$plist" 2>/dev/null)
-  ver=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$plist" 2>/dev/null)
+  id=""; ver=""
+  if [[ -f "$plist" ]]; then   # PlistBuddy prints "File Doesn't Exist" on stdout otherwise
+    id=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$plist" 2>/dev/null)
+    ver=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$plist" 2>/dev/null)
+  fi
   [[ -d "$a/Contents/_MASReceipt" ]] && mas=appstore || mas=direct
   kb=$(sudo du -sk "$a" 2>/dev/null | awk '{print $1}')
   printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$(basename "$a" .app)" "${id:-?}" "${ver:-?}" "$mas" "${kb:-0}" "$a"
