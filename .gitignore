@@ -28,3 +28,6 @@ __pycache__/
 llm-bench-history.csv
 llm-bench-history.jsonl
 llm-probe-history.csv
+
+# Pre-wipe inventories (personal paths and file names)
+inventory-*/

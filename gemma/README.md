@@ -28,6 +28,8 @@ Both engines serve the same API and the same model weights family, so Open WebUI
 | `bin/gemma-up.sh` | Start whatever is stopped and wait until both answer; `RESTART=1` restarts the model server after an env change |
 | `bin/gemma-down.sh` | Stop Open WebUI and the model server (`STOP_OWUI=0` stops only the model server) |
 | `rebuild/00-preflight.sh` | Read-only checks on the old system: chip, memory, volume owners, RemoveMacAI, Find My, FileVault, SSH, Screen Sharing, Ethernet, available Golden Gate update |
+| `rebuild/05-inventory.sh` | Read-only snapshot before a wipe: apps (version, App Store or not, size), Homebrew, launchd items, profiles, one user's account details (default UID 503) and every file in their home folder (size, date, path; caches skipped). Output stays on that Mac, never in the repo |
+| `rebuild/06-inventory-diff.py` | Compares two snapshots (e.g. M1 vs M5): report.md plus full lists of files only on each side and files that differ |
 | `rebuild/10-upgrade-os.sh` | Upgrade to the newest Golden Gate 27.x over SSH (`softwareupdate`, volume owner) |
 | `rebuild/30-bootstrap.sh` | First run after Setup Assistant, over SSH: Command Line Tools and Homebrew headless, repo clone on MacLLM, commit identity, `pmset`, zsh paste fix, optional computer name |
 | `rebuild/40-verify.sh` | Read-only check of the finished build, including one real chat completion; exit code = number of failures |

@@ -25,6 +25,26 @@ export STUDIO=M1-Studio.local
 export OLDADMIN=admin
 ```
 
+## A0. Inventory before anything (SSH, both Studios)
+
+Capture what is on the Mac before it's wiped, and compare it with another Studio. Read-only. On each Mac, logged in over SSH as an admin:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/mtbftmf/ZuulRulez/MacLLM/gemma/rebuild/05-inventory.sh -o ~/05-inventory.sh
+bash ~/05-inventory.sh
+```
+
+It snapshots the account with UID 503 by default (`INV_USER=` for another). Over SSH, privacy-protected folders (Mail, Messages, Safari data) are skipped unless Remote Login's "Allow full disk access for remote users" is on; `errors.txt` counts them. Then on the MBP, copy both folders over and compare:
+
+```bash
+mkdir -p ~/inventories && cd ~/inventories
+scp -r "$OLDADMIN@$STUDIO:inventory-*" .
+curl -fsSL https://raw.githubusercontent.com/mtbftmf/ZuulRulez/MacLLM/gemma/rebuild/06-inventory-diff.py -o 06-inventory-diff.py
+python3 06-inventory-diff.py inventory-M1-Studio-* inventory-M5-Studio-*
+```
+
+Use the M5's address for the second `scp`. Read `report.md`; `only-in-A.tsv` lists every file that exists only on the first Mac, which is what the erase would lose. Copy off anything worth keeping before step B.
+
 ## A. Preflight and upgrade (SSH, old system)
 
 ```bash
