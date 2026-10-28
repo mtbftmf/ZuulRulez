@@ -10,8 +10,16 @@ set -euo pipefail
 OWNER="${VOLUME_OWNER:-$USER}"
 die() { echo "error: $*" >&2; exit 1; }
 
-sudo profiles list 2>/dev/null | grep -q removemacai && \
-  die "remove the RemoveMacAI profile first: sudo profiles remove -identifier io.github.omlahore.removemacai"
+# RemoveMacAI blocks MobileAsset downloads, which stalls macOS updates (M5, 27.2: stuck at ~27.71%).
+# Take it off for the update; 40-verify.sh and 50-harden.sh status remind until it is reinstalled.
+if sudo profiles list 2>/dev/null | grep -q io.github.omlahore.removemacai; then
+  echo "RemoveMacAI is installed. It stalls macOS downloads, so it must come off for the update."
+  read -r -p "  Remove it now (reinstall afterwards with 50-harden.sh profile)? [y/N] " ans
+  [[ "$ans" == [yY]* ]] || die "update not started; profile still installed"
+  sudo profiles remove -identifier io.github.omlahore.removemacai || die "could not remove the profile"
+  mkdir -p "$HOME/.config" && date '+%F' > "$HOME/.config/removemacai-reinstall"
+  echo "  removed; reminder left in ~/.config/removemacai-reinstall"
+fi
 
 echo "→ Checking for updates (can take a minute)"
 list="$(softwareupdate --list 2>&1 || true)"

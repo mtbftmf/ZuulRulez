@@ -72,6 +72,15 @@ k1=$(/usr/libexec/PlistBuddy -c "Print :EnvironmentVariables:WEBUI_SECRET_KEY" "
 [[ -n "$k1" && "$k1" == "$(cat "$HOME/open-webui-data/.webui_secret_key" 2>/dev/null)" ]] && ok "secret key matches (logins survive restarts)" || fail "secret key mismatch"
 info "Open WebUI $("$HOME/open-webui-venv/bin/pip" show open-webui 2>/dev/null | awk '/^Version:/ {print $2}')"
 
+echo "== Hardening (RemoveMacAI, service toggles)"
+if sudo -n true 2>/dev/null; then
+  sudo profiles list 2>/dev/null | grep -q io.github.omlahore.removemacai && ok "RemoveMacAI profile installed" || info "RemoveMacAI profile not installed"
+else
+  info "profile check needs sudo: run 'sudo -v' first"
+fi
+[[ -f "$HOME/.config/removemacai-reinstall" ]] && fail "RemoveMacAI was removed for a macOS update on $(cat "$HOME/.config/removemacai-reinstall"): reinstall with 50-harden.sh profile"
+[[ -x /usr/local/bin/macos-service-toggle.sh ]] && info "service toggles installed (check: sudo /usr/local/bin/macos-service-toggle.sh status)" || info "service toggles not installed"
+
 echo
 (( fails == 0 )) && echo "All checks passed." || echo "$fails check(s) failed."
 echo "Speed (record in CHANGELOG): python3 ~/bin/llm-bench.py --model $MODEL_ID --label $ENGINE"

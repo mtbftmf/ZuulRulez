@@ -1,6 +1,6 @@
 # M5 Max post-OS-update verification
 
-Scope: the M5 Max Mac Studio (128 GB) and its canary, the M3 Pro MBP. The service tooling (`macos-service-toggle.sh` plus the reassert LaunchDaemon) is **not** part of the generic Gemma 4 builds for other Studios or the friends-and-family accounts.
+Scope: the M5 Max Mac Studio (128 GB) and its canary, the M3 Pro MBP. Since 2026-10-28 the generic Gemma 4 builds use the same hardening (RemoveMacAI plus `macos-service-toggle.sh` and its reassert LaunchDaemon), applied after the build verifies; see `gemma/docs/rebuild-runbook.md` phase H. The update order and lessons below apply to them too.
 
 | Machine | User (uid) | Role |
 |---|---|---|

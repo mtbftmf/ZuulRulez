@@ -1,6 +1,6 @@
 # Generic Gemma 4 builds (friends-and-family hosts)
 
-Scripted, single-model local LLM builds for M-series Mac Studios that host Open WebUI on the LAN for friends and family. Everything is command line and runs over SSH; there is no GUI app to click through, and both services start at boot before anyone logs in. Everything in this folder is generic. The M5 Max stack (`m5/`, Flash-Next, mlx-serve, Auto Router, Caddy, RAID, service toggles, RemoveMacAI, GPU wired-limit tuning) is **not** part of these builds.
+Scripted, single-model local LLM builds for M-series Mac Studios that host Open WebUI on the LAN for friends and family. Everything is command line and runs over SSH; there is no GUI app to click through, and both services start at boot before anyone logs in. Everything in this folder is generic. The M5 Max stack (`m5/`, Flash-Next, mlx-serve, Auto Router, Caddy, RAID, GPU wired-limit tuning) is **not** part of these builds. Hardening is: the RemoveMacAI profile and the macOS service toggles, as on the M5 and MBP, applied after the build verifies (runbook phase H), because turning Siri and Apple Intelligence off in Settings did not stick.
 
 ## What a build looks like
 
@@ -32,6 +32,7 @@ Both engines serve the same API and the same model weights family, so Open WebUI
 | `rebuild/06-inventory-diff.py` | Compares two snapshots (e.g. M1 vs M5): report.md plus full lists of files only on each side and files that differ |
 | `rebuild/10-upgrade-os.sh` | Upgrade to the newest Golden Gate 27.x over SSH (`softwareupdate`, volume owner) |
 | `rebuild/30-bootstrap.sh` | First run after Setup Assistant, over SSH: Command Line Tools and Homebrew headless, repo clone on MacLLM, commit identity, `pmset`, zsh paste fix, optional computer name |
+| `rebuild/50-harden.sh` | Hardening helpers: memory snapshots before/after, RemoveMacAI install and wait, status of the profile and the service toggles (watchdogd and rapportd checks) |
 | `rebuild/40-verify.sh` | Read-only check of the finished build, including one real chat completion; exit code = number of failures |
 | `config/gemma.env.example` | Template for `~/.config/gemma.env` (engine, repos, quant, context, parallel, ports) |
 | `docs/rebuild-runbook.md` | Step by step, with the one step at the machine |
@@ -68,6 +69,7 @@ Which is faster on a given Studio is measured, not assumed: run `llm-bench.py` o
 - `~/ZuulRulez` stays on MacLLM. Never `git checkout` there.
 - Host values go in `~/.config/gemma.env`; never commit it. No LAN addresses, e-mail addresses, tokens or `/Users/<name>` paths in this folder (example names like `M1-Studio` are fine).
 - Every change: one commit and one CHANGELOG line (date, what, why, measured result).
+- macOS updates: RemoveMacAI must come off first (it stalls the download) and go back on after. `10-upgrade-os.sh` removes it on request and `40-verify.sh` fails until `50-harden.sh profile` reinstalls it.
 
 ## Daily operation
 

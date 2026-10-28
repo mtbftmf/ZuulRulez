@@ -61,7 +61,7 @@ bash ~/00-preflight.sh
 
 Fix every WARN that matters before going on:
 
-- RemoveMacAI profile present: remove it (it stalls macOS downloads; see `docs/m5-max-post-os-update-verification.md`).
+- RemoveMacAI profile present: `10-upgrade-os.sh` offers to remove it (it stalls macOS downloads; see `docs/m5-max-post-os-update-verification.md`).
 - `$OLDADMIN` has no secure token: use an account that has one as `VOLUME_OWNER`.
 - Not on Ethernet: plug it in. Activation after the erase and FileVault unlock over SSH both want a wired link.
 - Nothing on port 5900: turn on Remote Management now (needed for step B).
@@ -185,6 +185,31 @@ Record the result: one CHANGELOG line (date, what changed, why, measured tok/s a
 cd ~/ZuulRulez && git pull
 git add -A && git commit -m "gemma: M1 Max rebuilt on Golden Gate, measured" && git push
 ```
+
+## H. Hardening: RemoveMacAI and service toggles (after G)
+
+Same as on the M5 and MBP, because turning Siri and Apple Intelligence off in Settings did not stick. Only after G passes, so any later problem can be told apart from a build problem. Fetch the helper and take a baseline a few minutes after a reboot, with the model loaded:
+
+```bash
+bash ~/ZuulRulez/gemma/rebuild/50-harden.sh snapshot before
+```
+
+1. **RemoveMacAI.** Download the latest release from omlahore.github.io/RemoveMacAI to `~/Downloads/RemoveMacAI.mobileconfig` on the Studio, then:
+   ```bash
+   bash ~/ZuulRulez/gemma/rebuild/50-harden.sh profile
+   ```
+   Approve it over Screen Sharing: System Settings → General → Device Management.
+2. **Service toggles.** Install `macos-service-toggle.sh` and its reassert LaunchDaemon from the **MBP's** copy (it has the com.apple.watchdogd fix; the M5's `~/Downloads` copy does not), the same way as on the MBP. Never disable `com.apple.rapportd`.
+3. Reboot, unlock over SSH, wait a few minutes, then:
+   ```bash
+   bash ~/ZuulRulez/gemma/rebuild/50-harden.sh snapshot after
+   bash ~/ZuulRulez/gemma/rebuild/50-harden.sh compare
+   bash ~/ZuulRulez/gemma/rebuild/50-harden.sh status
+   ~/ZuulRulez/gemma/rebuild/40-verify.sh
+   ```
+4. One CHANGELOG line with the compare result (RSS, swap, process count) and the verify result.
+
+**macOS updates from now on:** `10-upgrade-os.sh` removes RemoveMacAI on request before updating; afterwards `50-harden.sh profile` puts it back, then `50-harden.sh status` and the post-update checklist in `docs/m5-max-post-os-update-verification.md` (overrides held, watchdogd enabled, rapportd untouched).
 
 ## If something goes wrong
 
