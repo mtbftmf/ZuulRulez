@@ -52,7 +52,7 @@ echo "$models" | grep -qF "\"$MODEL_ID\"" && ok "serving $MODEL_ID" || fail "$MO
 n=$(printf '%s' "$models" | jq -r '.data | length' 2>/dev/null || echo "?")
 [[ "$n" == 1 ]] && ok "exactly one model listed" || info "$n models listed"
 case "$ENGINE" in
-  llamacpp) info "llama.cpp $(llama-server --version 2>&1 | grep -m1 -o 'version: [0-9]*' || echo '?'), cache $LLAMA_CACHE" ;;
+  llamacpp) info "llama.cpp $(llama-server --version 2>&1 | grep -m1 -o -E 'version: [0-9][0-9.]*' || echo '?'), cache $LLAMA_CACHE" ;;
   mlx)      info "mlx-vlm $("$MLX_VENV/bin/pip" show mlx-vlm 2>/dev/null | awk '/^Version:/ {print $2}')" ;;
 esac
 r=$(curl -fs -m 120 "http://127.0.0.1:$PORT/v1/chat/completions" -H 'Content-Type: application/json' \
