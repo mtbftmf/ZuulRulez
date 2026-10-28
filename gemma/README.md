@@ -86,4 +86,4 @@ Which is faster on a given Studio is measured, not assumed: run `llm-bench.py` o
 
 ## After a power failure
 
-The Mac restarts by itself (`pmset autorestart 1`). With FileVault on it then waits at the unlock screen: `ssh houdini@` the Mac over Ethernet and enter houdini's password (macOS 26 and later). The boot completes and both daemons start; nobody has to log in on the desktop. With FileVault off, everything comes back unattended, at the cost of an unencrypted disk holding everyone's chats.
+FileVault is **off** on generic builds (owner's decision, 2026-10-28), so the Mac comes back unattended: it restarts by itself (`pmset autorestart 1`), boots without an unlock, and both daemons start with nobody logged in. Measured on the M1: everything up and `40-verify.sh` passing within a minute of the restart. The trade-off is an unencrypted disk holding everyone's chats; keep the Mac physically secure. To encrypt later: `sudo fdesetup enable -user houdini` (save the recovery key it prints); from then on every reboot waits until someone runs `ssh houdini@` the Mac over Ethernet and enters the password.

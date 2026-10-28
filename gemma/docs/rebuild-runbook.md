@@ -101,7 +101,7 @@ Bring a display, a USB keyboard and a mouse (Bluetooth devices may need a cable 
 2. Language, region; Migration Assistant → **Not Now**.
 3. Apple Account → **Set Up Later** (a hosting box doesn't need one; it can be added later).
 4. Create the account: Full name `houdini`, account name `houdini`, strong password. This first account is the admin and the volume owner.
-5. FileVault: **on** (recommended; family chats live on this disk). With no Apple Account, macOS shows a recovery key: write it down and store it offline.
+5. FileVault: **off** (choose not to turn it on). Generic builds come back unattended after power cuts; see "After a power failure" in `gemma/README.md` for the trade-off and how to turn it on later.
 6. Location, analytics, Screen Time, Siri, Apple Intelligence: your choice; none are needed.
 7. At the desktop, System Settings → General → Sharing:
    - **Remote Management** on → Options: turn on all → Allow access for: Only these users → houdini.
@@ -177,7 +177,7 @@ Reboot test:
 sudo reboot
 ```
 
-After a minute, `ssh "houdini@$STUDIO"` (this unlocks FileVault), wait a minute more, and run `40-verify.sh` again. It should pass with nobody logged in on the desktop.
+After a minute, `ssh "houdini@$STUDIO"`, check `uptime`, and run `40-verify.sh` again. It should pass with nobody logged in on the desktop (M1: within a minute of the restart). Only if FileVault was turned on does the first SSH login unlock the disk instead.
 
 Record the result: one CHANGELOG line (date, what changed, why, measured tok/s and verify result), one commit:
 
@@ -223,5 +223,5 @@ bash ~/ZuulRulez/gemma/rebuild/50-harden.sh snapshot before
 | Command Line Tools not listed | Run `xcode-select --install` in Terminal over Screen Sharing, then re-run the bootstrap |
 | Model server not ready | `tail -50 ~/Library/Logs/gemma-llm.log`; run `~/ZuulRulez/gemma/bin/gemma-serve.sh` by hand after `STOP_OWUI=0 ~/bin/gemma-down.sh` to watch it start |
 | Out of memory or swapping | Lower `CTX` or `NP` in `~/.config/gemma.env`, then `RESTART=1 ~/bin/gemma-up.sh` |
-| Nothing after a power failure | FileVault is waiting: `ssh "houdini@$STUDIO"` and enter the password |
+| Nothing after a power failure | Wait two minutes and ping it; if FileVault was turned on, it is waiting: `ssh "houdini@$STUDIO"` and enter the password |
 | Open WebUI problems | The Open WebUI rows of the original M1 handoff doc still apply; its LM Studio rows don't |
