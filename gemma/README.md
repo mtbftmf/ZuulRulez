@@ -87,3 +87,9 @@ Which is faster on a given Studio is measured, not assumed: run `llm-bench.py` o
 ## After a power failure
 
 FileVault is **off** on generic builds (owner's decision, 2026-10-28), so the Mac comes back unattended: it restarts by itself (`pmset autorestart 1`), boots without an unlock, and both daemons start with nobody logged in. Measured on the M1: everything up and `40-verify.sh` passing within a minute of the restart. The trade-off is an unencrypted disk holding everyone's chats; keep the Mac physically secure. To encrypt later: `sudo fdesetup enable -user houdini` (save the recovery key it prints); from then on every reboot waits until someone runs `ssh houdini@` the Mac over Ethernet and enters the password.
+
+## Left for the new owner
+
+Settings that depend on how the owner wants the box used, so the build leaves them off:
+
+- **Web search ("internet access" in chats).** Off by default: no search engine is configured, so chats show no web-search toggle. To turn it on: Admin Panel → Settings → Web Search → enable, pick a search engine and save. DuckDuckGo needs no API key; Brave, Tavily and similar need one (keep keys in Open WebUI, never in this repo); SearXNG can be self-hosted. The toggle then appears in the chat input's options. Searches go out from the Studio, and results are added to the prompt: on a 32 GB M1 (16K context, ~390 tok/s prefill) a search that adds 5,000 tokens costs about 13 s before the answer starts.
