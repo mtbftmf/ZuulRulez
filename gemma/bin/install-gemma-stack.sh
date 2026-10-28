@@ -142,6 +142,13 @@ echo "Asking for your password once (LaunchDaemons need sudo)."
 sudo -v
 while true; do sudo -n true; sleep 50; kill -0 "$$" 2>/dev/null || exit; done 2>/dev/null &
 
+if [[ -n "${HF_TOKEN:-}" ]]; then
+  export HF_TOKEN; chmod 600 "$ENV_FILE" 2>/dev/null || true
+  echo "Using HF_TOKEN from $ENV_FILE for model downloads."
+else
+  echo "No HF_TOKEN set: downloads work, but Hugging Face rate-limits them (see gemma.env.example)."
+fi
+
 step "1/8 Homebrew packages"
 brew install python@3.11 jq
 [[ "$ENGINE" == llamacpp ]] && brew install llama.cpp
