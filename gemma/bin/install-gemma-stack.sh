@@ -153,7 +153,7 @@ case "$ENGINE" in
     # llama-server downloads the GGUF and its vision projector into $LLAMA_CACHE, then serves.
     # Run it once on a spare port, stop it when it reports healthy; the daemon then runs --offline.
     mkdir -p "$LLAMA_CACHE"
-    have() { find "$LLAMA_CACHE" -iname "$1" -name '*.gguf' -size +1M 2>/dev/null | grep -q .; }
+    have() { find -L "$LLAMA_CACHE" -iname "$1" -name '*.gguf' -size +1M 2>/dev/null | grep -q .; }
     if have "*${GGUF_QUANT}*" && have "*mmproj*"; then
       echo "Already downloaded."
     else
@@ -167,7 +167,7 @@ case "$ENGINE" in
       kill "$pid"; wait "$pid" 2>/dev/null || true
       have "*${GGUF_QUANT}*" || die "no *${GGUF_QUANT}*.gguf in $LLAMA_CACHE after download"
     fi
-    find "$LLAMA_CACHE" -name '*.gguf' -size +1M -exec ls -lh {} + | awk '{print "  " $5 "  " $NF}'
+    find -L "$LLAMA_CACHE" -name '*.gguf' -size +1M -exec ls -lhL {} + | awk '{print "  " $5 "  " $NF}'
     ;;
   mlx)
     [[ -x "$MLX_VENV/bin/python" ]] || "$PY311" -m venv "$MLX_VENV"
