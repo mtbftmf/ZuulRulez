@@ -1,20 +1,23 @@
 #!/usr/bin/env bash
-# gemma-down.sh — stop Open WebUI, unload models, stop LM Studio's server.
-# STOP_OWUI=0 ~/bin/gemma-down.sh   leaves Open WebUI running.
+# gemma-down.sh — stop Open WebUI and the model server (frees the model's memory).
+# They stay stopped until gemma-up.sh or the next boot.
+#   STOP_OWUI=0 ~/bin/gemma-down.sh   stop only the model server
 set -euo pipefail
-
-LMS="${LMS:-$HOME/.lmstudio/bin/lms}"
-OWUI_LABEL="${OWUI_LABEL:-com.openwebui.serve}"
+HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+# shellcheck source=gemma-env.sh
+source "$HERE/gemma-env.sh"
+OWUI_LABEL="${OWUI_LABEL:-$OWUI_LABEL_DEFAULT}"
 STOP_OWUI="${STOP_OWUI:-1}"
 
-if [[ "$STOP_OWUI" == 1 ]] && sudo launchctl print "system/$OWUI_LABEL" >/dev/null 2>&1; then
-  echo "→ Stopping Open WebUI"
-  sudo launchctl bootout "system/$OWUI_LABEL" || true
-fi
+stop() {
+  if sudo launchctl print "system/$1" >/dev/null 2>&1; then
+    echo "→ Stopping $1"
+    sudo launchctl bootout "system/$1" || true
+    for _ in $(seq 1 30); do sudo launchctl print "system/$1" >/dev/null 2>&1 || break; sleep 1; done
+  fi
+}
 
-echo "→ Unloading models"
-"$LMS" unload --all || true
-echo "→ Stopping LM Studio server"
-"$LMS" server stop || true
-
+sudo -v
+[[ "$STOP_OWUI" == 1 ]] && stop "$OWUI_LABEL"
+stop "$LLM_LABEL"
 top -l 1 -s 0 | grep PhysMem || true

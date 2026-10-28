@@ -1,6 +1,6 @@
 # Rebuild runbook: Mac Studio → macOS Golden Gate + generic Gemma 4 build
 
-Written for the first host (Mac Studio M1 Max, 32 GB, coming from macOS Tahoe 26) and reusable for any M-series Studio. Everything runs from the 14" MBP over SSH or Screen Sharing except **one visit to the machine** (Setup Assistant, ~15 minutes): an erased Mac has no account and no sharing turned on, and Setup Assistant can't be screen-shared.
+Written for the first host (Mac Studio M1 Max, 32 GB, coming from macOS Tahoe 26) and reusable for any M-series Studio. Everything runs from the 14" MBP over SSH (Screen Sharing only for the erase) except **one visit to the machine** (Setup Assistant, ~15 minutes): an erased Mac has no account and no sharing turned on, and Setup Assistant can't be screen-shared.
 
 Why upgrade first, then erase: Erase All Content and Settings (EACS) wipes every account and file but keeps the installed macOS. Upgrading to Golden Gate while the Mac is still reachable means the erased Mac comes back on Golden Gate, with no Recovery or USB install (Recovery can't be screen-shared either).
 
@@ -10,7 +10,7 @@ Why upgrade first, then erase: Erase All Content and Settings (EACS) wipes every
 | B. Erase All Content and Settings | MBP → Screen Sharing | 5 min |
 | C. Setup Assistant, turn on sharing | **At the machine** | 15 min |
 | D. Bootstrap | MBP → SSH | 10 min |
-| E. Install the stack | MBP → SSH + Screen Sharing | 30 min, mostly downloads |
+| E. Install the stack | MBP → SSH | 30 min, mostly downloads |
 | F. Open WebUI setup | MBP → browser | 15 min |
 | G. Verify, benchmark, reboot test, record | MBP → SSH | 15 min |
 
@@ -88,7 +88,7 @@ Bring a display, a USB keyboard and a mouse (Bluetooth devices may need a cable 
    - **Remote Login** on → Allow access for: houdini.
    - Local hostname → Edit → `M1-Studio` (optional; the bootstrap can set it too).
 8. System Settings → Network → Ethernet: note the IP and make a DHCP reservation for it on the router.
-9. Leave houdini logged in. Head back upstairs.
+9. Log out or leave it at the desktop; nothing needs a desktop session from here on. Head back upstairs.
 
 ## D. Bootstrap (SSH as houdini)
 
@@ -107,35 +107,32 @@ This installs the Command Line Tools and Homebrew without dialogs, `brew install
 
 Only if this Mac should push to GitHub itself: `gh auth login` (HTTPS, browser; open the URL and code on the MBP).
 
-## E. Install the stack (SSH + Screen Sharing)
+## E. Install the stack (SSH)
 
-Open Screen Sharing to the Studio (log in as houdini) and keep it beside the SSH window. In SSH:
+Everything from here is command line. In the SSH session:
 
 ```bash
 exec zsh -l
 ~/ZuulRulez/gemma/bin/install-gemma-stack.sh
 ```
 
-When it says so, click through LM Studio's first-run screens in the Screen Sharing window (skip its model download). The script then downloads Gemma (Q4_0), installs Open WebUI, the daemon, the login item and the `~/bin` links.
+It installs llama.cpp, downloads the Gemma GGUF and its vision projector (~16 GB), installs Open WebUI, writes and loads both LaunchDaemons (`com.gemma.llm`, `com.openwebui.serve`), links `~/bin`, then waits until the model answers.
 
-Then in LM Studio (Screen Sharing):
-
-- Developer → Server Settings: **Just-in-Time Model Loading off**, and any option that loads the last-used model at startup off (it would race the login item).
-- My Models → gemma-4-26b-a4b-it-qat → gear: GPU offload max, context 16384, Try mmap() on.
-
-Back in SSH:
+To try MLX as well (adds ~16 GB, switches the daemon to it):
 
 ```bash
-~/bin/gemma-up.sh
+ENGINE=mlx ~/ZuulRulez/gemma/bin/install-gemma-stack.sh
 ```
+
+Switch back the same way with `ENGINE=llamacpp`. Decide which one stays before step F, since Open WebUI personas are tied to the model id.
 
 ## F. Open WebUI (MBP browser)
 
 Open `http://M1-Studio.local:8080` (or the IP). **The first account created becomes the admin**: create houdini's account.
 
-1. Admin Panel → Settings → Connections: OpenAI API lists `http://localhost:1234/v1`, no prefix, empty Model IDs; Ollama off. Leave Direct Connections empty.
-2. Admin Panel → Settings → Interface: local and external Task Model = `gemma-4-26b-a4b-it-qat`.
-3. Admin Panel → Settings → Models → gemma-4-26b-a4b-it-qat → Advanced Params: temperature 1.0, top_p 0.95, top_k 64.
+1. Admin Panel → Settings → Connections: OpenAI API lists `http://127.0.0.1:1234/v1`, no prefix, empty Model IDs; Ollama off. Leave Direct Connections empty.
+2. Admin Panel → Settings → Interface: local and external Task Model = the model id the installer printed (`gemma-4-26b-a4b-it-qat` on llama.cpp).
+3. Admin Panel → Settings → Models → the Gemma model → Advanced Params: temperature 1.0, top_p 0.95, top_k 64.
 4. Admin Panel → Settings → General: sign-ups on, default role **pending** (you approve each friend or family member under Admin Panel → Users).
 5. Settings → Personalization → Memory: add the memories in `owui-memories.md`. Keep them short: every message carries them, and context is 16K here.
 6. Optional: the AI Admin assistant from the original handoff (Knowledge from `~/ai-handoff`, system prompt in that doc), and the Gemma personas exported from the M5 (Workspace → Models → Export there, Import here; then fix the hardware line in each system prompt).
@@ -144,7 +141,14 @@ Open `http://M1-Studio.local:8080` (or the IP). **The first account created beco
 
 ```bash
 ~/ZuulRulez/gemma/rebuild/40-verify.sh
-python3 ~/bin/llm-bench.py --model gemma-4-26b-a4b-it-qat --label m1max-32
+python3 ~/bin/llm-bench.py --model gemma-4-26b-a4b-it-qat --label llamacpp
+```
+
+If MLX was installed too, benchmark it the same way and keep the faster one:
+
+```bash
+ENGINE=mlx ~/ZuulRulez/gemma/bin/install-gemma-stack.sh
+python3 ~/bin/llm-bench.py --model mlx-community/gemma-4-26B-A4B-it-qat-4bit --label mlx
 ```
 
 Reboot test:
@@ -153,7 +157,7 @@ Reboot test:
 sudo reboot
 ```
 
-After a minute: `ssh "houdini@$STUDIO"` (unlocks FileVault), then Screen Sharing → log in as houdini, wait a minute, and run `40-verify.sh` again. It should pass with no manual `gemma-up.sh`.
+After a minute, `ssh "houdini@$STUDIO"` (this unlocks FileVault), wait a minute more, and run `40-verify.sh` again. It should pass with nobody logged in on the desktop.
 
 Record the result: one CHANGELOG line (date, what changed, why, measured tok/s and verify result), one commit:
 
@@ -172,6 +176,7 @@ git add -A && git commit -m "gemma: M1 Max rebuilt on Golden Gate, measured" && 
 | SSH refused after the erase | `ssh-keygen -R "$STUDIO"`; Remote Login on (step C7) |
 | Screen Sharing refused | Remote Management on and houdini allowed (step C7) |
 | Command Line Tools not listed | Run `xcode-select --install` in Terminal over Screen Sharing, then re-run the bootstrap |
-| Installer waits on LM Studio | Finish its first-run screens in Screen Sharing; houdini must be logged in on the desktop |
-| Gemma not loaded after reboot | houdini not logged in on the desktop yet; `tail ~/Library/Logs/gemma-up.log` |
-| Other problems | The troubleshooting table in the original M1 handoff doc applies unchanged |
+| Model server not ready | `tail -50 ~/Library/Logs/gemma-llm.log`; run `~/ZuulRulez/gemma/bin/gemma-serve.sh` by hand after `STOP_OWUI=0 ~/bin/gemma-down.sh` to watch it start |
+| Out of memory or swapping | Lower `CTX` or `NP` in `~/.config/gemma.env`, then `RESTART=1 ~/bin/gemma-up.sh` |
+| Nothing after a power failure | FileVault is waiting: `ssh "houdini@$STUDIO"` and enter the password |
+| Open WebUI problems | The Open WebUI rows of the original M1 handoff doc still apply; its LM Studio rows don't |

@@ -4,12 +4,9 @@
 # Exit code = number of FAILs.
 set -uo pipefail
 
-# shellcheck disable=SC1091
-[[ -f "$HOME/.config/gemma.env" ]] && source "$HOME/.config/gemma.env"
-MODEL_KEY="${MODEL_KEY:-gemma-4-26b-a4b-it-qat}"
-PORT="${PORT:-1234}"
-OWUI_PORT="${OWUI_PORT:-8080}"
 REPO="$HOME/ZuulRulez"
+# shellcheck source=../bin/gemma-env.sh
+source "$REPO/gemma/bin/gemma-env.sh" || exit 1
 fails=0
 ok()   { printf '  OK    %s\n' "$*"; }
 fail() { printf '  FAIL  %s\n' "$*"; fails=$((fails + 1)); }
@@ -41,18 +38,28 @@ for f in gemma-up.sh gemma-down.sh owui-upgrade.sh llm-bench.py; do
   [[ "$t" == "$REPO/"* ]] && ok "~/bin/$f → ${t#"$HOME"/}" || fail "~/bin/$f is not a link into the repo"
 done
 
-echo "== LM Studio"
+echo "== Model server ($ENGINE)"
+sudo -n true 2>/dev/null && pl="sudo launchctl" || pl="launchctl"
+$pl print "system/$LLM_LABEL" >/dev/null 2>&1 && ok "daemon $LLM_LABEL loaded (starts at boot)" || fail "daemon $LLM_LABEL not loaded (run ~/bin/gemma-up.sh)"
 l=$(listen "$PORT")
-if [[ -z "$l" ]]; then fail "nothing listening on :$PORT (run ~/bin/gemma-up.sh)"
+if [[ -z "$l" ]]; then fail "nothing listening on :$PORT (tail -50 $LLM_LOG)"
 else
   wide=0; for a in $l; do [[ "$a" == 127.* || "$a" == "[::1]:"* ]] || wide=1; done
   (( wide == 0 )) && ok "server on localhost only ($l)" || fail "server reachable beyond localhost: $l"
 fi
-models=$(curl -fs "http://localhost:$PORT/v1/models" 2>/dev/null)
-echo "$models" | grep -q "\"$MODEL_KEY\"" && ok "$MODEL_KEY loaded" || fail "$MODEL_KEY not served (JIT off: run ~/bin/gemma-up.sh)"
+models=$(curl -fs "http://127.0.0.1:$PORT/v1/models" 2>/dev/null)
+echo "$models" | grep -qF "\"$MODEL_ID\"" && ok "serving $MODEL_ID" || fail "$MODEL_ID not served"
 n=$(printf '%s' "$models" | jq -r '.data | length' 2>/dev/null || echo "?")
-[[ "$n" == 1 ]] && ok "exactly one model listed" || info "$n models listed (JIT may still be on)"
-launchctl print "gui/$(id -u)/com.$USER.gemma-up" >/dev/null 2>&1 && ok "login item com.$USER.gemma-up loaded" || fail "login item com.$USER.gemma-up not loaded"
+[[ "$n" == 1 ]] && ok "exactly one model listed" || info "$n models listed"
+case "$ENGINE" in
+  llamacpp) info "llama.cpp $(llama-server --version 2>&1 | grep -m1 -o 'version: [0-9]*' || echo '?'), cache $LLAMA_CACHE" ;;
+  mlx)      info "mlx-vlm $("$MLX_VENV/bin/pip" show mlx-vlm 2>/dev/null | awk '/^Version:/ {print $2}')" ;;
+esac
+r=$(curl -fs -m 120 "http://127.0.0.1:$PORT/v1/chat/completions" -H 'Content-Type: application/json' \
+  -d "{\"model\":\"$MODEL_ID\",\"messages\":[{\"role\":\"user\",\"content\":\"Reply with the single word ready.\"}],\"max_tokens\":200}" 2>/dev/null \
+  | jq -r '.choices[0].message.content // empty' 2>/dev/null)
+[[ "$r" == *[Rr]eady* ]] && ok "chat completion answered" || fail "chat completion: '${r:0:60}'"
+[[ -f "$HOME/Library/LaunchAgents/com.$USER.gemma-up.plist" ]] && fail "old LM Studio login item still present (re-run the installer)"
 
 echo "== Open WebUI"
 curl -fs "http://localhost:$OWUI_PORT/health" >/dev/null 2>&1 && ok "healthy on :$OWUI_PORT" || fail "no answer on :$OWUI_PORT"
@@ -67,5 +74,5 @@ info "Open WebUI $("$HOME/open-webui-venv/bin/pip" show open-webui 2>/dev/null |
 
 echo
 (( fails == 0 )) && echo "All checks passed." || echo "$fails check(s) failed."
-echo "Speed (record in CHANGELOG): python3 ~/bin/llm-bench.py --model $MODEL_KEY --label $(scutil --get LocalHostName 2>/dev/null)"
+echo "Speed (record in CHANGELOG): python3 ~/bin/llm-bench.py --model $MODEL_ID --label $ENGINE"
 exit "$fails"

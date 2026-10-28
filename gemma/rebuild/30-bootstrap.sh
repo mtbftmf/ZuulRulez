@@ -77,7 +77,8 @@ cat <<EOF
 
 ✓ Bootstrap done. Next:
   1. Only if this Mac should push to GitHub: gh auth login   (HTTPS, browser; open the code on the MBP)
-  2. Over Screen Sharing (logged in as $USER), run in Terminal on this Mac or over SSH:
+  2. Install the stack (all over SSH, ~30 min, mostly downloads):
+       exec zsh -l
        ~/ZuulRulez/gemma/bin/install-gemma-stack.sh
-     LM Studio's first-run screens need a click-through in the Screen Sharing window.
+     ENGINE=mlx in front of the installer uses MLX instead of llama.cpp.
 EOF
