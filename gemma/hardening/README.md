@@ -21,7 +21,7 @@ Undo everything this script changed: `sudo /usr/local/bin/macos-service-toggle.s
 
 ## Headless hosts
 
-On a generic build nobody logs in on the desktop, so houdini's `gui/501` session domain doesn't exist and its session agents (most of the Siri and Apple Intelligence list) never start. Run over SSH, `on` therefore reports those as `[SKIP] … not found` and records only the system and `user/501` entries; that is expected, not a failure. If someone later logs in on the desktop regularly, run `on` again from a Terminal in that desktop session so the session agents get recorded too; the reassert daemon waits up to 120 s for a console user at boot and skips them otherwise. With automatic login turned on, the console session exists at every boot and the session entries are reasserted too (the M1 reports houdini on `console` a minute after boot).
+On a generic build nobody logs in on the desktop, so houdini's `gui/501` session domain doesn't exist and its session agents (most of the Siri and Apple Intelligence list) never start. Run over SSH, `on` therefore reports those as `[SKIP] … not found` and records only the system and `user/501` entries; that is expected, not a failure. If someone later logs in on the desktop regularly, run `on` again from a Terminal in that desktop session so the session agents get recorded too; the reassert daemon waits up to 120 s for a console user at boot and skips them otherwise. If someone logs in at the login window within those 120 s (for example over Screen Sharing right after a reboot), the session entries are reasserted too; generic builds leave automatic login off, so on an unattended boot they are skipped.
 
 ## Troubleshooting
 
