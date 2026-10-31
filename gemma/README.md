@@ -38,6 +38,8 @@ Both engines serve the same API and the same model weights family, so Open WebUI
 | `config/gemma.env.example` | Template for `~/.config/gemma.env` (engine, repos, quant, context, parallel, ports) |
 | `docs/rebuild-runbook.md` | Step by step, with the one step at the machine |
 | `docs/owui-memories.md` | Open WebUI memory text for this project |
+| `docs/handoff-chat.md` | Handoff for the new owner, pasted as houdini's first Open WebUI chat (M1 values; adapt for another host) |
+| `docs/field-guide.html` | One-page illustrated guide for the new owner (offline copy of the published page) |
 
 Shared from `m5/bin` (generic, linked into `~/bin` by the installer): `owui-upgrade.sh`, `llm-bench.py`.
 

@@ -1,0 +1,397 @@
+<title>Gemma Studio Field Guide</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..100,500..800&family=Source+Sans+3:ital,wght@0,400;0,600;1,400&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: one reading column with full-bleed diagram bands; amber = reachable from the LAN, teal = localhost only. */
+:root {
+  --bg: #f2f4f5;
+  --panel: #ffffff;
+  --fg: #16202a;
+  --muted: #586773;
+  --line: #c9d2d8;
+  --lan: #b86a00;
+  --lan-soft: #fbecd6;
+  --local: #0b7a74;
+  --local-soft: #d8efed;
+  --code-bg: #e6ebee;
+  --font-display: "Archivo", "Arial Narrow", system-ui, sans-serif;
+  --font-body: "Source Sans 3", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f1418; --panel: #172027; --fg: #dbe3e8; --muted: #93a3ae; --line: #2c3a44;
+    --lan: #f0a63c; --lan-soft: #3a2a12; --local: #4cc5bc; --local-soft: #12322f; --code-bg: #1d2830;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f1418; --panel: #172027; --fg: #dbe3e8; --muted: #93a3ae; --line: #2c3a44;
+  --lan: #f0a63c; --lan-soft: #3a2a12; --local: #4cc5bc; --local-soft: #12322f; --code-bg: #1d2830;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--fg);
+  font: 17px/1.6 var(--font-body);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 40px 72px;
+}
+main { max-width: 980px; margin: 0 auto; display: grid; gap: 56px; }
+h1, h2, h3 { font-family: var(--font-display); font-stretch: 82%; line-height: 1.1; text-wrap: balance; margin: 0; }
+h1 { font-size: clamp(2.2rem, 6vw, 3.6rem); font-weight: 800; letter-spacing: -0.01em; }
+h2 { font-size: 1.7rem; font-weight: 700; }
+h3 { font-size: 1.15rem; font-weight: 700; font-stretch: 90%; }
+p { margin: 0; max-width: 68ch; }
+section { display: grid; gap: 18px; min-width: 0; }
+.eyebrow { font-family: var(--font-mono); font-size: 0.75rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
+.lede { font-size: 1.15rem; color: var(--muted); max-width: 64ch; }
+code, kbd, pre { font-family: var(--font-mono); font-size: 0.86em; }
+code { background: var(--code-bg); padding: 1px 5px; border-radius: 4px; overflow-wrap: anywhere; }
+pre { background: var(--code-bg); padding: 14px 16px; border-radius: 6px; overflow-x: auto; margin: 0; line-height: 1.5; }
+pre code { background: none; padding: 0; }
+.lan { color: var(--lan); font-weight: 600; }
+.local { color: var(--local); font-weight: 600; }
+
+header.top { display: grid; gap: 14px; }
+.spec { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.spec div { background: var(--panel); padding: 12px 14px; display: grid; gap: 2px; min-width: 0; }
+.spec dt { font-family: var(--font-mono); font-size: 0.72rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
+.spec dd { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
+
+@media (max-width: 760px) { .spec { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 460px) { .spec { grid-template-columns: minmax(0, 1fr); } }
+.figure { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px; overflow-x: auto; }
+.figure svg { display: block; width: 100%; min-width: 700px; height: auto; }
+.legend { display: flex; flex-wrap: wrap; gap: 8px 20px; font-size: 0.92rem; color: var(--muted); }
+.legend span::before { content: ""; display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+.legend .l-lan::before { background: var(--lan-soft); border: 2px solid var(--lan); }
+.legend .l-local::before { background: var(--local-soft); border: 2px dashed var(--local); }
+
+svg text { font-family: var(--font-body); fill: var(--fg); font-size: 14px; }
+svg .mono { font-family: var(--font-mono); font-size: 12.5px; }
+svg .small { font-size: 12px; fill: var(--muted); }
+svg .title { font-family: var(--font-display); font-weight: 700; font-size: 16px; }
+svg .box { fill: var(--panel); stroke: var(--line); stroke-width: 1.5; }
+svg .studio { fill: var(--bg); stroke: var(--fg); stroke-width: 2; }
+svg .lanbox { fill: var(--lan-soft); stroke: var(--lan); stroke-width: 2; }
+svg .localzone { fill: var(--local-soft); stroke: var(--local); stroke-width: 2; stroke-dasharray: 7 5; }
+svg .wire { stroke: var(--muted); stroke-width: 2; fill: none; }
+svg .wire-lan { stroke: var(--lan); stroke-width: 2.5; fill: none; }
+svg .wire-local { stroke: var(--local); stroke-width: 2.5; fill: none; }
+svg .ah-lan { fill: var(--lan); } svg .ah-local { fill: var(--local); } svg .ah { fill: var(--muted); }
+svg .port { fill: var(--lan); }
+svg .port-t { fill: var(--panel); font-family: var(--font-mono); font-size: 12px; font-weight: 600; }
+svg .port-local { fill: var(--local); }
+
+.callout { border-left: 4px solid var(--lan); background: var(--panel); padding: 16px 18px; border-radius: 0 8px 8px 0; display: grid; gap: 10px; }
+.callout.ok { border-left-color: var(--local); }
+.steps { margin: 0; padding-left: 1.3em; display: grid; gap: 8px; max-width: 72ch; }
+
+.boot { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; counter-reset: b; list-style: none; padding: 0; margin: 0; }
+.boot li { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px; display: grid; gap: 6px; align-content: start; min-width: 0; counter-increment: b; }
+.boot li::before { content: "T" counter(b); font-family: var(--font-mono); font-size: 0.75rem; color: var(--muted); letter-spacing: 0.08em; }
+.boot li.you { border-color: var(--lan); box-shadow: inset 0 3px 0 var(--lan); }
+.boot p { font-size: 0.95rem; color: var(--muted); }
+
+.mem-bar { display: flex; height: 46px; border-radius: 6px; overflow: hidden; border: 1px solid var(--line); position: relative; }
+.mem-bar div { display: flex; align-items: center; justify-content: center; font-size: 0.82rem; font-weight: 600; white-space: nowrap; overflow: hidden; padding: 0 4px; }
+.seg-w { background: var(--local); color: var(--panel); }
+.seg-k { background: var(--local-soft); color: var(--fg); border-right: 1px solid var(--line); }
+.seg-r { background: var(--panel); color: var(--muted); }
+.mem-wrap { position: relative; padding-top: 26px; }
+.mem-mark { position: absolute; top: 0; bottom: -6px; border-left: 2px dashed var(--lan); }
+.mem-mark span { position: absolute; top: 0; left: 6px; font-size: 0.8rem; color: var(--lan); font-weight: 600; white-space: nowrap; }
+.mem-scale { display: flex; justify-content: space-between; font-family: var(--font-mono); font-size: 0.75rem; color: var(--muted); font-variant-numeric: tabular-nums; margin-top: 6px; }
+
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }
+.grid2 > * { min-width: 0; }
+table { border-collapse: collapse; width: 100%; font-size: 0.95rem; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-family: var(--font-mono); font-size: 0.72rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+.tablewrap { overflow-x: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
+.tree { white-space: pre; }
+.tree .c { color: var(--muted); }
+.checklist { list-style: none; padding: 0; margin: 0; display: grid; gap: 10px; }
+.checklist li { display: grid; grid-template-columns: 22px 1fr; gap: 10px; align-items: start; }
+.checklist li::before { content: ""; width: 16px; height: 16px; border: 2px solid var(--muted); border-radius: 3px; margin-top: 4px; }
+footer { color: var(--muted); font-size: 0.9rem; border-top: 1px solid var(--line); padding-top: 16px; }
+@media (prefers-reduced-motion: no-preference) {
+  .wire-lan, .wire-local { stroke-dasharray: 6 6; animation: flow 1.6s linear infinite; }
+  @keyframes flow { to { stroke-dashoffset: -24; } }
+}
+</style>
+
+<main>
+  <header class="top">
+    <div class="eyebrow">Mac Studio M1 Max · macOS Golden Gate 27 · account houdini</div>
+    <h1>Gemma Studio Field Guide</h1>
+    <p class="lede">A private chat AI for friends and family, running on one Mac Studio on your network. It's a Unix box with two services under launchd, driven entirely over SSH. This page shows how the pieces fit, what happens at boot, and what to do when it lands on your LAN.</p>
+    <dl class="spec">
+      <div><dt>Hardware</dt><dd>M1 Max, 10 CPU / 24 GPU, 32 GB unified</dd></div>
+      <div><dt>OS</dt><dd>macOS Golden Gate 27 (Darwin, zsh)</dd></div>
+      <div><dt>Account</dt><dd><code>houdini</code>, the only user, admin</dd></div>
+      <div><dt>Model</dt><dd>Gemma 4 26B-A4B QAT, 4-bit, text + images</dd></div>
+      <div><dt>Engine</dt><dd>llama.cpp 0.8.0 (faster than MLX here: 68 vs 59 tok/s)</dd></div>
+      <div><dt>Front end</dt><dd>Open WebUI in the browser, port 8080</dd></div>
+    </dl>
+  </header>
+
+  <section aria-labelledby="h-net">
+    <div class="eyebrow">Topology</div>
+    <h2 id="h-net">What talks to what</h2>
+    <p>Only three ports face the LAN. The model server never does: Open WebUI reaches it over loopback, and everyone else reaches Open WebUI.</p>
+    <div class="legend"><span class="l-lan">Listening on the LAN</span><span class="l-local">127.0.0.1 only</span></div>
+    <div class="figure">
+      <svg viewBox="0 0 920 470" role="img" aria-labelledby="net-t net-d">
+        <title id="net-t">Network and service diagram</title>
+        <desc id="net-d">Browsers and an SSH client on the LAN reach the Studio's ports 8080, 22 and 5900. Inside the Studio, Open WebUI calls the model server on 127.0.0.1 port 1234, which reads the model weights from disk.</desc>
+        <defs>
+          <marker id="m-lan" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-lan" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="m-local" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-local" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="m-g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+
+        <text x="20" y="28" class="title">Your LAN</text>
+        <text x="20" y="46" class="small">any subnet, any addresses</text>
+
+        <rect x="20" y="70" width="200" height="72" rx="8" class="box"/>
+        <text x="34" y="98" class="title">Family devices</text>
+        <text x="34" y="120" class="small">any browser, phone or laptop</text>
+
+        <rect x="20" y="190" width="200" height="72" rx="8" class="box"/>
+        <text x="34" y="218" class="title">Your Linux box</text>
+        <text x="34" y="240" class="small mono">ssh houdini@studio</text>
+
+        <rect x="20" y="310" width="200" height="72" rx="8" class="box"/>
+        <text x="34" y="338" class="title">Your router</text>
+        <text x="34" y="360" class="small">DHCP: reserve the Studio's IP</text>
+        <path class="wire" d="M220 346 H300" marker-end="url(#m-g)"/>
+        <text x="228" y="338" class="small">lease</text>
+
+        <rect x="300" y="20" width="600" height="430" rx="14" class="studio"/>
+        <text x="320" y="48" class="title">Mac Studio · M1-Studio.local</text>
+        <text x="320" y="66" class="small">Ethernet · launchd starts both daemons at boot, as houdini, no login needed</text>
+
+        <rect x="290" y="94" width="20" height="26" rx="4" class="port"/>
+        <rect x="290" y="200" width="20" height="26" rx="4" class="port"/>
+        <rect x="290" y="240" width="20" height="26" rx="4" class="port"/>
+        <path class="wire-lan" d="M220 106 H288" marker-end="url(#m-lan)"/>
+        <path class="wire-lan" d="M220 214 H288" marker-end="url(#m-lan)"/>
+        <path class="wire-lan" d="M220 236 C250 236 260 253 288 253" marker-end="url(#m-lan)"/>
+
+        <rect x="330" y="86" width="250" height="96" rx="8" class="lanbox"/>
+        <text x="344" y="112" class="title">Open WebUI</text>
+        <text x="344" y="132" class="mono">:8080 on 0.0.0.0</text>
+        <text x="344" y="152" class="small mono">com.openwebui.serve</text>
+        <text x="344" y="170" class="small mono">~/open-webui-data</text>
+
+        <rect x="330" y="196" width="250" height="34" rx="8" class="lanbox"/>
+        <text x="344" y="218" class="mono">:22 sshd (Remote Login)</text>
+        <rect x="330" y="236" width="250" height="34" rx="8" class="lanbox"/>
+        <text x="344" y="258" class="mono">:5900 Screen Sharing (VNC)</text>
+
+        <rect x="610" y="86" width="270" height="344" rx="10" class="localzone"/>
+        <text x="626" y="110" class="title">127.0.0.1 only</text>
+
+        <rect x="626" y="126" width="238" height="112" rx="8" class="box"/>
+        <text x="640" y="150" class="title">Model server</text>
+        <text x="640" y="170" class="mono">:1234 · OpenAI API /v1</text>
+        <text x="640" y="190" class="small mono">com.gemma.llm</text>
+        <text x="640" y="208" class="small mono">llama-server (llama.cpp)</text>
+        <text x="640" y="226" class="small">≤ 2 requests at once, 16K context</text>
+        <path class="wire-local" d="M580 140 H624" marker-end="url(#m-local)"/>
+        <text x="584" y="132" class="small">/v1</text>
+
+        <rect x="626" y="268" width="238" height="70" rx="8" class="box"/>
+        <text x="640" y="292" class="title">Model weights</text>
+        <text x="640" y="312" class="small mono">~/models/llama.cpp  (GGUF)</text>
+        <text x="640" y="328" class="small">Q4_0 + vision projector, ~16 GB</text>
+        <path class="wire" d="M745 238 V266" marker-end="url(#m-g)"/>
+
+        <rect x="626" y="352" width="238" height="62" rx="8" class="box"/>
+        <text x="640" y="376" class="title">~/.config/gemma.env</text>
+        <text x="640" y="396" class="small mono">ENGINE  CTX  NP  PORT</text>
+
+        <text x="330" y="300" class="small">Not reachable from the internet.</text>
+        <text x="330" y="318" class="small">No port forwarding, no TLS: LAN only.</text>
+        <text x="330" y="350" class="small">Nothing here is tied to an IP address:</text>
+        <text x="330" y="368" class="small">Open WebUI binds 0.0.0.0, the model</text>
+        <text x="330" y="386" class="small">server binds 127.0.0.1.</text>
+      </svg>
+    </div>
+  </section>
+
+  <section aria-labelledby="h-lan">
+    <div class="eyebrow">Arrival</div>
+    <h2 id="h-lan">Moving it to your network</h2>
+    <div class="callout ok">
+      <h3>Nothing needs reconfiguring</h3>
+      <p>It's set up on a different LAN than yours, but no config file, script or service holds an IP address. Open WebUI listens on <code>0.0.0.0:8080</code> and the model server on <code>127.0.0.1:1234</code>. Plug it into your network and it takes whatever address your DHCP server hands out.</p>
+    </div>
+    <ol class="steps">
+      <li>Connect <strong>Ethernet</strong> and power. Wi-Fi works too, but wired is steadier for a server.</li>
+      <li>It powers on and starts everything by itself in about a minute. Find its address in your router's DHCP lease table (look for <code>M1-Studio</code>), then <code>ssh houdini@</code> that address.</li>
+      <li>Make a <strong>DHCP reservation</strong> for that address on your router, so family bookmarks keep working.</li>
+      <li>On the same subnet, <code>M1-Studio.local</code> works too (mDNS/Bonjour). It doesn't cross subnets or VLANs; use the IP or a DNS entry there.</li>
+      <li>Run the health check: <code>~/ZuulRulez/gemma/rebuild/40-verify.sh</code>. Exit status is the number of failures.</li>
+      <li>Open <code>http://</code><em>its address</em><code>:8080</code> in a browser.</li>
+    </ol>
+  </section>
+
+  <section aria-labelledby="h-boot">
+    <div class="eyebrow">Boot sequence</div>
+    <h2 id="h-boot">From power cord to first chat</h2>
+    <p>It restarts on its own after a power cut (<code>pmset autorestart 1</code>) and needs nobody: FileVault is off by choice, so there is no unlock step. Measured: everything answers about a minute after power-on.</p>
+    <ol class="boot">
+      <li><h3>Power on</h3><p>Firmware and the kernel boot. FileVault is off, so there is no unlock screen to wait at.</p></li>
+      <li><h3>launchd</h3><p>Loads the plists in <code>/Library/LaunchDaemons</code>, like systemd units at <code>multi-user.target</code>.</p></li>
+      <li><h3>Model server</h3><p><code>com.gemma.llm</code> loads about 16 GB of weights onto the GPU, offline.</p></li>
+      <li><h3>Open WebUI</h3><p><code>com.openwebui.serve</code> answers on :8080. Nobody logs in on the desktop.</p></li>
+    </ol>
+  </section>
+
+  <section aria-labelledby="h-mem">
+    <div class="eyebrow">Memory</div>
+    <h2 id="h-mem">Where the 32 GB goes</h2>
+    <p>CPU and GPU share one pool of memory. By default macOS lets the GPU wire roughly two thirds of it. The model and its context cache have to fit under that line; everything else gets the rest. Figures are approximate.</p>
+    <div class="mem-wrap" role="img" aria-label="32 GB bar: about 15.6 GB model weights, about 1.5 GB context cache, the rest for macOS and Open WebUI; GPU limit near 21 GB">
+      <div class="mem-mark" style="left: calc(21.3 / 32 * 100%);"><span>GPU limit ≈ 21 GB</span></div>
+      <div class="mem-bar">
+        <div class="seg-w" style="width: calc(15.6 / 32 * 100%);">weights ~15.6</div>
+        <div class="seg-k" style="width: calc(1.5 / 32 * 100%);">KV</div>
+        <div class="seg-r" style="flex: 1;">macOS, Open WebUI, headroom</div>
+      </div>
+      <div class="mem-scale"><span>0</span><span>8</span><span>16</span><span>24</span><span>32 GB</span></div>
+    </div>
+    <p>If it starts swapping (<code>sysctl vm.swapusage</code>), lower <code>CTX</code> or <code>NP</code> in <code>~/.config/gemma.env</code> and run <code>RESTART=1 ~/bin/gemma-up.sh</code>.</p>
+  </section>
+
+  <section aria-labelledby="h-map">
+    <div class="eyebrow">Translation table</div>
+    <h2 id="h-map">Your Linux habits, macOS spelling</h2>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>On Linux</th><th>On this Mac</th></tr></thead>
+        <tbody>
+          <tr><td><code>systemctl status/restart</code></td><td><code>sudo launchctl print system/com.gemma.llm</code><br><code>sudo launchctl kickstart -k system/com.gemma.llm</code></td></tr>
+          <tr><td>unit files in <code>/etc/systemd/system</code></td><td>plists in <code>/Library/LaunchDaemons</code> (generated; edit <code>gemma.env</code>, then rerun the installer)</td></tr>
+          <tr><td><code>journalctl -u</code></td><td><code>tail -f ~/Library/Logs/gemma-llm.log ~/Library/Logs/open-webui.log</code></td></tr>
+          <tr><td><code>apt</code> / <code>dnf</code></td><td><code>brew</code> (lives in <code>/opt/homebrew</code>)</td></tr>
+          <tr><td><code>ss -ltnp</code></td><td><code>lsof -nP -iTCP -sTCP:LISTEN</code></td></tr>
+          <tr><td><code>free -h</code>, <code>vmstat</code></td><td><code>memory_pressure</code>, <code>vm_stat</code>, <code>top -l 1 | grep PhysMem</code></td></tr>
+          <tr><td><code>ip addr</code></td><td><code>ipconfig getifaddr en0</code>, <code>ifconfig</code></td></tr>
+          <tr><td><code>hostnamectl</code></td><td><code>scutil --get LocalHostName</code></td></tr>
+          <tr><td><code>apt upgrade</code> (OS)</td><td><code>softwareupdate --list</code>, then <code>sudo softwareupdate --install</code> <em>label</em> <code>--user houdini --stdinpass</code></td></tr>
+          <tr><td>GNU coreutils</td><td>BSD tools: <code>sed -i ''</code>, <code>date -v</code>, no <code>readlink -m</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section aria-labelledby="h-hard">
+    <div class="eyebrow">Hardening</div>
+    <h2 id="h-hard">Siri, Apple Intelligence and 63 background services: off</h2>
+    <p>A single-purpose server doesn't need iCloud, Messages, Siri or analytics. Turning them off in Settings didn't stick, so two mechanisms do it and a boot daemon keeps it that way.</p>
+    <div class="grid2">
+      <div class="callout ok">
+        <h3>RemoveMacAI profile</h3>
+        <p>A configuration profile that blocks Siri and Apple Intelligence. It also stalls macOS downloads, so it comes off before every OS update and goes back on after.</p>
+        <p><code>bash ~/ZuulRulez/gemma/rebuild/50-harden.sh status</code></p>
+      </div>
+      <div class="callout ok">
+        <h3>Service toggles</h3>
+        <p><code>launchctl disable</code> overrides for 63 services. macOS 27 resets some early in boot, so <code>com.macos-service-toggle.reassert</code> re-applies them at every boot. Never touched: sshd, Remote Management, Time Machine, <code>watchdogd</code>, <code>rapportd</code>.</p>
+        <p><code>sudo /usr/local/bin/macos-service-toggle.sh status</code></p>
+      </div>
+    </div>
+    <ol class="steps">
+      <li><strong>Healthy:</strong> system services read <code>[still disabled]</code>, nothing reads <code>DRIFTED</code>. Per-user <code>gui/501</code> entries read <code>[unknown/not found]</code> when nobody is logged in on the desktop; that's normal.</li>
+      <li><strong>macOS update:</strong> <code>10-upgrade-os.sh</code> (offers to remove the profile) → update → <code>50-harden.sh profile</code> → <code>40-verify.sh</code>. If a download stalls anyway: toggles <code>off</code>, update, <code>on</code> again (<code>mobileassetd</code> is on the list).</li>
+      <li><strong>Undo all of it:</strong> <code>sudo /usr/local/bin/macos-service-toggle.sh off</code>, then <code>sudo launchctl bootout system/com.macos-service-toggle.reassert</code>. Logs and state: <code>/usr/local/var/macos-service-toggle/</code>.</li>
+    </ol>
+  </section>
+
+  <section aria-labelledby="h-files">
+    <div class="eyebrow">Layout</div>
+    <h2 id="h-files">Where things live</h2>
+    <div class="grid2">
+      <pre class="tree"><code>~  <span class="c"># houdini's home</span>
+├── ZuulRulez/            <span class="c"># build scripts + docs: don't move it</span>
+│   └── gemma/
+│       ├── bin/          <span class="c"># install, serve, up, down</span>
+│       ├── rebuild/      <span class="c"># preflight … verify, harden</span>
+│       ├── hardening/    <span class="c"># service toggles + README</span>
+│       └── docs/         <span class="c"># runbook, handoff</span>
+├── bin/                  <span class="c"># symlinks into ZuulRulez</span>
+├── .config/gemma.env     <span class="c"># this host's settings</span>
+├── models/llama.cpp/     <span class="c"># GGUF weights</span>
+├── open-webui-venv/      <span class="c"># Open WebUI (Python 3.11)</span>
+├── open-webui-data/      <span class="c"># users, chats: back this up</span>
+├── owui-backups/         <span class="c"># made by owui-upgrade.sh</span>
+├── ai-handoff/           <span class="c"># offline copy of the docs</span>
+└── Library/Logs/         <span class="c"># gemma-llm.log, open-webui.log</span>
+
+/Library/LaunchDaemons/
+├── com.gemma.llm.plist
+├── com.openwebui.serve.plist
+└── com.macos-service-toggle.reassert.plist
+/usr/local/bin/macos-service-toggle*.sh
+/usr/local/var/macos-service-toggle/  <span class="c"># state, logs</span></code></pre>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Task</th><th>Command</th></tr></thead>
+          <tbody>
+            <tr><td>Health check</td><td><code>~/ZuulRulez/gemma/rebuild/40-verify.sh</code></td></tr>
+            <tr><td>Start, wait until ready</td><td><code>~/bin/gemma-up.sh</code></td></tr>
+            <tr><td>Apply a <code>gemma.env</code> change</td><td><code>RESTART=1 ~/bin/gemma-up.sh</code></td></tr>
+            <tr><td>Stop, free the memory</td><td><code>~/bin/gemma-down.sh</code></td></tr>
+            <tr><td>Switch engine</td><td><code>ENGINE=mlx ~/ZuulRulez/gemma/bin/install-gemma-stack.sh</code></td></tr>
+            <tr><td>Upgrade Open WebUI</td><td><code>~/bin/owui-upgrade.sh</code> (backs up, can roll back)</td></tr>
+            <tr><td>Benchmark</td><td><code>python3 ~/bin/llm-bench.py --model gemma-4-26b-a4b-it-qat</code></td></tr>
+            <tr><td>Talk to the API directly</td><td><code>curl -s 127.0.0.1:1234/v1/models</code> (on the Studio)</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section aria-labelledby="h-notes">
+    <div class="eyebrow">Your own notes</div>
+    <h2 id="h-notes">Keeping docs and scripts, Git optional</h2>
+    <p><code>~/ZuulRulez</code> came over as a Git checkout, but you can treat it as a plain folder. Nothing on the box needs Git to run.</p>
+    <ol class="steps">
+      <li><strong>Leave <code>~/ZuulRulez</code> where it is.</strong> The model daemon, the <code>~/bin</code> links and <code>40-verify.sh</code> point into it.</li>
+      <li><strong>Keep your own material in a separate folder</strong>, for example <code>~/admin/</code> for notes, your scripts and runbooks. Machine settings belong in <code>~/.config/gemma.env</code>, not in the scripts.</li>
+      <li><strong>Dated snapshots:</strong> <code>tar czf ~/admin/snapshot-$(date +%F).tgz -C ~ ZuulRulez .config/gemma.env admin</code>, then copy them wherever you keep backups.</li>
+      <li><strong>If you want history after all:</strong> Git is installed. <code>git -C ~/ZuulRulez status</code> lists anything you've changed in the build folder.</li>
+      <li><strong>The first chat in Open WebUI</strong> (as houdini) is the handoff for this machine. Ask Gemma about the box there.</li>
+    </ol>
+  </section>
+
+  <section aria-labelledby="h-day1">
+    <div class="eyebrow">Handover</div>
+    <h2 id="h-day1">First day with it</h2>
+    <div class="grid2">
+      <ul class="checklist">
+        <li><span>Change houdini's password in System Settings → Users &amp; Groups (Screen Sharing), so login and sudo use your own.</span></li>
+        <li><span>The disk is not encrypted (FileVault off, so it restarts unattended). Keep the Mac somewhere private. To encrypt anyway: <code>sudo fdesetup enable -user houdini</code>; then every reboot waits for an SSH login to unlock it.</span></li>
+        <li><span>Sign in to Open WebUI as the admin account and change its password. New sign-ups wait as <strong>pending</strong> until you approve them under Admin Panel → Users; approved users all see the model.</span></li>
+        <li><span>Add your SSH key: <code>ssh-copy-id houdini@</code><em>studio</em></span></li>
+        <li><span><strong>Your call: web search.</strong> It's off, so chats have no internet toggle. To turn it on: Admin Panel → Settings → Web Search, enable it, pick an engine (DuckDuckGo needs no key; Brave or Tavily need one; SearXNG can be self-hosted). Each search adds its results to the prompt, roughly 13 s of extra wait per 5,000 tokens on this M1.</span></li>
+        <li><span><strong>Your call: tools.</strong> Nothing is wired in yet. Open WebUI can give the model access to local folders, GitHub or other code hosts, either as Python tools (Workspace → Tools) or as OpenAPI/MCP tool servers (admin settings, external tools). Limit a folder tool to one dedicated folder, give a GitHub token read-only access to just the repos it needs, and decide whether family members get tools or only you. Tools run on the Studio as houdini.</span></li>
+      </ul>
+      <ul class="checklist">
+        <li><span>Screen Sharing from Linux: any VNC client on port 5900 works once a VNC password is set in System Settings → General → Sharing → Remote Management → Options.</span></li>
+        <li><span>Back up <code>~/open-webui-data</code>: that's every account and chat. The model files can always be downloaded again.</span></li>
+        <li><span>OS updates: run <code>bash ~/ZuulRulez/gemma/rebuild/10-upgrade-os.sh</code> over SSH. It first removes the RemoveMacAI profile (it blocks macOS downloads); afterwards reinstall it with <code>50-harden.sh profile</code>. <code>40-verify.sh</code> fails until you do. The update needs houdini's password.</span></li>
+        <li><span>Don't run the repo's top-level <code>./install.sh</code>. It belongs to a different machine's setup.</span></li>
+      </ul>
+    </div>
+  </section>
+
+  <footer>Final version for the handover, 31 Oct 2026. Source: <code>~/ZuulRulez/gemma/</code> on the Studio (README, <code>docs/rebuild-runbook.md</code>, <code>docs/handoff-chat.md</code>, <code>hardening/README.md</code>); a copy of this page is <code>docs/field-guide.html</code>. Memory figures are estimates; <code>40-verify.sh</code> and <code>llm-bench.py</code> give the real numbers on this machine.</footer>
+</main>
