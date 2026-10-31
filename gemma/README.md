@@ -14,7 +14,7 @@ Scripted, single-model local LLM builds for M-series Mac Studios that host Open 
 | Engine `mlx` | `mlx_vlm.server` in `~/mlx-venv`, `mlx-community/gemma-4-26B-A4B-it-qat-4bit` (15.6 GB, vision) in the Hugging Face cache; model id = that repo name |
 | Context | 16384 on 32 GB, 32768 on 48 GB and up; at most 2 requests at once (`CTX`, `NP` in `~/.config/gemma.env`) |
 | Front end | Open WebUI in `~/open-webui-venv`, LaunchDaemon `com.openwebui.serve` on `0.0.0.0:8080`, data in `~/open-webui-data` |
-| Users | houdini is the Open WebUI admin; friends and family get Open WebUI accounts (new sign-ups wait for approval) |
+| Users | houdini is the Open WebUI admin; friends and family get Open WebUI accounts (new sign-ups wait for approval). `BYPASS_MODEL_ACCESS_CONTROL=true` in the Open WebUI daemon, so every approved user sees every model (without it, connection models are admin-only) |
 
 Both engines serve the same API and the same model weights family, so Open WebUI doesn't care which one runs. The model id differs, though: personas and the Task Model point at one id, so settle the engine before building personas.
 

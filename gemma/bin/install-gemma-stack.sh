@@ -84,6 +84,7 @@ write_owui_plist() {  # $1 = secret key
     <key>ENABLE_OLLAMA_API</key><string>false</string>
     <key>OPENAI_API_BASE_URL</key><string>http://127.0.0.1:$PORT/v1</string>
     <key>OPENAI_API_KEY</key><string>local</string>
+    <key>BYPASS_MODEL_ACCESS_CONTROL</key><string>true</string>
   </dict>
   <key>StandardOutPath</key><string>$OWUI_LOG</string>
   <key>StandardErrorPath</key><string>$OWUI_LOG</string>
