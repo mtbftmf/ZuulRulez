@@ -2,6 +2,9 @@
 
 Newest first. Entries before Oct 16, 2026 were reconstructed from chat history.
 
+## 2026-10-31
+- `gemma/hardening/`: `macos-service-toggle.sh` and `macos-service-toggle-reassert.sh` now versioned (copies from the MBP), plus a reassert LaunchDaemon plist and README (install, dry run, undo, headless behaviour, mobileassetd and updates). Fixed in the toggle script: `com.apple.watchdogd` removed from the service list (it is the system watchdog, not Apple Watch) and added with `com.apple.rapportd` to `PROTECTED_SERVICES`; the copy taken from the MBP still had watchdogd in the list. No UID change needed: both scripts already resolve the user from `SUDO_USER` / the console (houdini is uid 501 on the M1, ewagner 503 on the M5). Runbook phase H points at the repo copy. Why: the M1 needs the toggles and the only copies were outside the repo, one with the watchdogd bug. Result: `bash -n` clean, plist parses; not yet run on the M1.
+
 ## 2026-10-28
 - `gemma/README.md` "Left for the new owner": second item, tools (Python tools in Workspace → Tools, or OpenAPI/MCP tool servers) for local folders and GitHub or other code hosts, with what to decide first: folder scope, token scope and storage, per-user/per-model access, prompt cost, checking tool calls work with Gemma on llama.cpp. Why: the owner wants the new owner to add folder and code-repo access himself. Result: documentation only.
 - `gemma/README.md`: "Left for the new owner" section; first item: web search is off on generic builds (no search engine configured, so chats have no internet toggle), with how to enable it and its cost on a 32 GB M1 (~13 s extra wait per 5,000 tokens of results at ~390 tok/s prefill). Why: on the M1 the chat options had no internet-access toggle; the owner wants the new owner to choose and configure it. Result: documentation only.

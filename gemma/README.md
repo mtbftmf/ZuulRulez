@@ -33,6 +33,7 @@ Both engines serve the same API and the same model weights family, so Open WebUI
 | `rebuild/10-upgrade-os.sh` | Upgrade to the newest Golden Gate 27.x over SSH (`softwareupdate`, volume owner) |
 | `rebuild/30-bootstrap.sh` | First run after Setup Assistant, over SSH: Command Line Tools and Homebrew headless, repo clone on MacLLM, commit identity, `pmset`, zsh paste fix, optional computer name |
 | `rebuild/50-harden.sh` | Hardening helpers: memory snapshots before/after, RemoveMacAI install and wait, status of the profile and the service toggles (watchdogd and rapportd checks) |
+| `hardening/` | macOS service toggles and their boot-time reassert daemon (user-independent; watchdogd and rapportd protected), install steps in its README |
 | `rebuild/40-verify.sh` | Read-only check of the finished build, including one real chat completion; exit code = number of failures |
 | `config/gemma.env.example` | Template for `~/.config/gemma.env` (engine, repos, quant, context, parallel, ports) |
 | `docs/rebuild-runbook.md` | Step by step, with the one step at the machine |

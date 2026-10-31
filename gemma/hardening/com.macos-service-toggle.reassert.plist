@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.macos-service-toggle.reassert</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>/usr/local/bin/macos-service-toggle-reassert.sh</string>
+  </array>
+  <key>RunAtLoad</key><true/>
+  <key>StandardOutPath</key><string>/usr/local/var/macos-service-toggle/reassert.stdout.log</string>
+  <key>StandardErrorPath</key><string>/usr/local/var/macos-service-toggle/reassert.stdout.log</string>
+</dict>
+</plist>

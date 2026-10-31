@@ -199,7 +199,7 @@ bash ~/ZuulRulez/gemma/rebuild/50-harden.sh snapshot before
    bash ~/ZuulRulez/gemma/rebuild/50-harden.sh profile
    ```
    Approve it over Screen Sharing: System Settings → General → Device Management.
-2. **Service toggles.** Install `macos-service-toggle.sh` and its reassert LaunchDaemon from the **MBP's** copy (it has the com.apple.watchdogd fix; the M5's `~/Downloads` copy does not), the same way as on the MBP. Never disable `com.apple.rapportd`.
+2. **Service toggles.** Install from the repo copy in `gemma/hardening/` (README there: install, dry run, `on`, reassert daemon, undo). It protects com.apple.watchdogd and com.apple.rapportd and works for any account. Over SSH on a headless host, session-agent entries report `[SKIP]`; that is expected.
 3. Reboot, unlock over SSH, wait a few minutes, then:
    ```bash
    bash ~/ZuulRulez/gemma/rebuild/50-harden.sh snapshot after
