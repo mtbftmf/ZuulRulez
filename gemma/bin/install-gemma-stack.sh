@@ -19,8 +19,8 @@ REPO="$(cd "$HERE/../.." && pwd)"
 ENV_FILE="$HOME/.config/gemma.env"
 ENV_EXAMPLE="$REPO/gemma/config/gemma.env.example"
 MEM_GB=$(( $(sysctl -n hw.memsize 2>/dev/null || echo 0) / 1073741824 ))
-# Context from installed memory (weights ~15.6 GB): 32 GB → 16384, 48 GB and up → 32768.
-default_ctx() { if (( MEM_GB >= 48 )); then echo 32768; else echo 16384; fi; }
+# Context: 32768 on every supported size (32 GB and up). Measured on a 32 GB M1 Max: 18.2 GB peak wired at 32K, no swap.
+default_ctx() { echo 32768; }
 
 CLI_ENGINE="${ENGINE:-}"
 if [[ ! -f "$ENV_FILE" && -f "$ENV_EXAMPLE" ]]; then

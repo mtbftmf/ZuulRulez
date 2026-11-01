@@ -12,7 +12,7 @@ Scripted, single-model local LLM builds for M-series Mac Studios that host Open 
 | Model server | LaunchDaemon `com.gemma.llm` → `gemma/bin/gemma-serve.sh`, on `127.0.0.1:1234` only, OpenAI API at `/v1`, log `~/Library/Logs/gemma-llm.log` |
 | Engine `llamacpp` (default) | Homebrew `llama-server`, GGUF Q4_0 from `lmstudio-community/gemma-4-26B-A4B-it-QAT-GGUF` plus its vision projector, cache `~/models/llama.cpp`; model id `gemma-4-26b-a4b-it-qat` |
 | Engine `mlx` | `mlx_vlm.server` in `~/mlx-venv`, `mlx-community/gemma-4-26B-A4B-it-qat-4bit` (15.6 GB, vision) in the Hugging Face cache; model id = that repo name |
-| Context | 16384 on 32 GB, 32768 on 48 GB and up; at most 2 requests at once (`CTX`, `NP` in `~/.config/gemma.env`) |
+| Context | 32768, shared by at most 2 requests at once (`CTX`, `NP` in `~/.config/gemma.env`); on 32 GB it peaks at 18.2 GB wired, under the ~21 GB default GPU limit |
 | Front end | Open WebUI in `~/open-webui-venv`, LaunchDaemon `com.openwebui.serve` on `0.0.0.0:8080`, data in `~/open-webui-data` |
 | Users | houdini is the Open WebUI admin; friends and family get Open WebUI accounts (new sign-ups wait for approval). `BYPASS_MODEL_ACCESS_CONTROL=true` in the Open WebUI daemon, so every approved user sees every model (without it, connection models are admin-only) |
 
@@ -95,7 +95,7 @@ FileVault is **off** on generic builds (owner's decision, 2026-10-28), so the Ma
 
 Settings that depend on how the owner wants the box used, so the build leaves them off:
 
-- **Web search ("internet access" in chats).** Off by default: no search engine is configured, so chats show no web-search toggle. To turn it on: Admin Panel → Settings → Web Search → enable, pick a search engine and save. DuckDuckGo needs no API key; Brave, Tavily and similar need one (keep keys in Open WebUI, never in this repo); SearXNG can be self-hosted. The toggle then appears in the chat input's options. Searches go out from the Studio, and results are added to the prompt: on a 32 GB M1 (16K context, ~390 tok/s prefill) a search that adds 5,000 tokens costs about 13 s before the answer starts.
+- **Web search ("internet access" in chats).** Off by default: no search engine is configured, so chats show no web-search toggle. To turn it on: Admin Panel → Settings → Web Search → enable, pick a search engine and save. DuckDuckGo needs no API key; Brave, Tavily and similar need one (keep keys in Open WebUI, never in this repo); SearXNG can be self-hosted. The toggle then appears in the chat input's options. Searches go out from the Studio, and results are added to the prompt: on a 32 GB M1 (32K context, ~390 tok/s prefill) a search that adds 5,000 tokens costs about 13 s before the answer starts.
 - **Tools: local folders, GitHub and other code hosts.** None are installed. Open WebUI can give models tools in two ways (menu names vary between Open WebUI versions):
   - *Python tools* under Workspace → Tools: small functions that run inside Open WebUI.
   - *Tool servers* (OpenAPI, or MCP through a bridge such as `mcpo`) added under the admin settings for external tools: for example a filesystem server limited to one folder, or a GitHub server.

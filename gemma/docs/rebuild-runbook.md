@@ -154,7 +154,7 @@ Open `http://M1-Studio.local:8080` (or the IP). **The first account created beco
 2. Admin Panel → Settings → Interface: local and external Task Model = the model id the installer printed (`gemma-4-26b-a4b-it-qat` on llama.cpp).
 3. Admin Panel → Settings → Models → the Gemma model → Advanced Params: temperature 1.0, top_p 0.95, top_k 64.
 4. Admin Panel → Settings → General: sign-ups on, default role **pending** (you approve each friend or family member under Admin Panel → Users).
-5. Settings → Personalization → Memory: add the memories in `owui-memories.md`. Keep them short: every message carries them, and context is 16K here.
+5. Settings → Personalization → Memory: add the memories in `owui-memories.md`. Keep them short: every message carries them, and context is 32K, shared by two requests.
 6. Optional: the AI Admin assistant from the original handoff (Knowledge from `~/ai-handoff`, system prompt in that doc), and the Gemma personas exported from the M5 (Workspace → Models → Export there, Import here; then fix the hardware line in each system prompt).
 
 ## G. Verify, benchmark, reboot test, record (SSH)

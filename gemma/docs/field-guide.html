@@ -202,7 +202,7 @@ footer { color: var(--muted); font-size: 0.9rem; border-top: 1px solid var(--lin
         <text x="640" y="170" class="mono">:1234 · OpenAI API /v1</text>
         <text x="640" y="190" class="small mono">com.gemma.llm</text>
         <text x="640" y="208" class="small mono">llama-server (llama.cpp)</text>
-        <text x="640" y="226" class="small">≤ 2 requests at once, 16K context</text>
+        <text x="640" y="226" class="small">≤ 2 requests at once, 32K context</text>
         <path class="wire-local" d="M580 140 H624" marker-end="url(#m-local)"/>
         <text x="584" y="132" class="small">/v1</text>
 
@@ -258,11 +258,11 @@ footer { color: var(--muted); font-size: 0.9rem; border-top: 1px solid var(--lin
     <div class="eyebrow">Memory</div>
     <h2 id="h-mem">Where the 32 GB goes</h2>
     <p>CPU and GPU share one pool of memory. By default macOS lets the GPU wire roughly two thirds of it. The model and its context cache have to fit under that line; everything else gets the rest. Figures are approximate.</p>
-    <div class="mem-wrap" role="img" aria-label="32 GB bar: about 15.6 GB model weights, about 1.5 GB context cache, the rest for macOS and Open WebUI; GPU limit near 21 GB">
+    <div class="mem-wrap" role="img" aria-label="32 GB bar: about 15.6 GB model weights, about 2.5 GB context cache, the rest for macOS and Open WebUI; GPU limit near 21 GB">
       <div class="mem-mark" style="left: calc(21.3 / 32 * 100%);"><span>GPU limit ≈ 21 GB</span></div>
       <div class="mem-bar">
         <div class="seg-w" style="width: calc(15.6 / 32 * 100%);">weights ~15.6</div>
-        <div class="seg-k" style="width: calc(1.5 / 32 * 100%);">KV</div>
+        <div class="seg-k" style="width: calc(2.5 / 32 * 100%);">KV</div>
         <div class="seg-r" style="flex: 1;">macOS, Open WebUI, headroom</div>
       </div>
       <div class="mem-scale"><span>0</span><span>8</span><span>16</span><span>24</span><span>32 GB</span></div>

@@ -11,7 +11,7 @@ You are running on the Mac described below, and I am its new owner and admin. Tr
 ## 2. How it fits together
 | Piece | Detail |
 | --- | --- |
-| Model server | LaunchDaemon `com.gemma.llm` (runs `~/ZuulRulez/gemma/bin/gemma-serve.sh` as houdini at boot). Homebrew `llama-server` (llama.cpp 0.8.0), GGUF Q4_0 plus vision projector, model id `gemma-4-26b-a4b-it-qat`. Listens on 127.0.0.1:1234 only, OpenAI API at `/v1`. 16K context, 2 requests at once. Log `~/Library/Logs/gemma-llm.log` |
+| Model server | LaunchDaemon `com.gemma.llm` (runs `~/ZuulRulez/gemma/bin/gemma-serve.sh` as houdini at boot). Homebrew `llama-server` (llama.cpp 0.8.0), GGUF Q4_0 plus vision projector, model id `gemma-4-26b-a4b-it-qat`. Listens on 127.0.0.1:1234 only, OpenAI API at `/v1`. 32K context shared by up to 2 requests at once. Log `~/Library/Logs/gemma-llm.log` |
 | Open WebUI | LaunchDaemon `com.openwebui.serve`, version 0.12.5, venv `~/open-webui-venv`, data `~/open-webui-data`, on 0.0.0.0:8080. Log `~/Library/Logs/open-webui.log` |
 | Settings | `~/.config/gemma.env` (ENGINE, CTX, NP, PORT, OWUI_PORT). Edit this, never the plists; the installer writes the plists |
 | Weights | `~/models/llama.cpp` (about 16 GB; can always be downloaded again) |
@@ -26,20 +26,20 @@ Linux equivalents: `systemctl` → `sudo launchctl print|kickstart -k system/<la
 | Health check (exit code = failures) | `~/ZuulRulez/gemma/rebuild/40-verify.sh` |
 | Start whatever is stopped, wait until ready | `~/bin/gemma-up.sh` |
 | Apply a `gemma.env` change | `RESTART=1 ~/bin/gemma-up.sh` |
-| Stop both (frees ~17 GB) | `~/bin/gemma-down.sh` |
+| Stop both (frees ~18 GB) | `~/bin/gemma-down.sh` |
 | Re-check or repair the install (safe to repeat) | `~/ZuulRulez/gemma/bin/install-gemma-stack.sh` |
 | Upgrade llama.cpp | `brew upgrade llama.cpp`, then `RESTART=1 ~/bin/gemma-up.sh` |
 | Upgrade Open WebUI (backup first, can roll back) | `~/bin/owui-upgrade.sh` |
 | Benchmark | `python3 ~/bin/llm-bench.py --model gemma-4-26b-a4b-it-qat --label llamacpp` |
 | Logs | `tail -f ~/Library/Logs/gemma-llm.log ~/Library/Logs/open-webui.log` |
 
-Measured on this Mac: about 68 tok/s generating, about 390 tok/s reading prompts (a 7,800-token prompt takes ~20 s before the first word), first word on a short prompt in ~0.3 s. Memory: about 17 GB wired with the model loaded, no swap.
+Measured on this Mac: about 68 tok/s generating, about 390 tok/s reading prompts (a 7,800-token prompt takes ~20 s before the first word), first word on a short prompt in ~0.3 s. Near the 32K limit it slows down: a 28,000-token prompt takes about 2.5 minutes before the first word (~180 tok/s), then about 48 tok/s. In normal chats only each new message is read, because llama.cpp caches the conversation. Memory: about 18 GB wired with the model loaded (18.2 GB peak at 28K), no swap.
 
 ## 4. Open WebUI as set up
 - The OpenAI connection points at `http://127.0.0.1:1234/v1`; the Ollama API is off.
 - Task Model (titles, tags) = `gemma-4-26b-a4b-it-qat`. Model parameters: temperature 1.0, top_p 0.95, top_k 64.
 - Sign-ups are on and new users start as **pending**: approve them under Admin Panel → Users. Every approved user sees the model, because the daemon sets `BYPASS_MODEL_ACCESS_CONTROL=true`.
-- Thinking is left at the chat template default (on): better answers on hard questions, but slower, and the reasoning uses some of the 16K context.
+- Thinking is left at the chat template default (on): better answers on hard questions, but slower, and the reasoning uses some of the context.
 - Three memories describe the build. Every message carries them, so keep any you add short.
 - Web search and tools are **not** configured; they're yours to decide (see section 9).
 
@@ -91,6 +91,6 @@ Measured on this Mac: about 68 tok/s generating, about 390 tok/s reading prompts
 - Start with `40-verify.sh`. It names the failing piece.
 - Model not answering: `tail -50 ~/Library/Logs/gemma-llm.log`, then `RESTART=1 ~/bin/gemma-up.sh`.
 - Web page down: `tail -50 ~/Library/Logs/open-webui.log`, then `sudo launchctl kickstart -k system/com.openwebui.serve`.
-- Slow or swapping (`sysctl vm.swapusage`): lower `CTX` (for example 8192) or set `NP=1` in `gemma.env`, then `RESTART=1 ~/bin/gemma-up.sh`.
+- Slow or swapping (`sysctl vm.swapusage`): lower `CTX` (for example 16384) or set `NP=1` in `gemma.env`, then `RESTART=1 ~/bin/gemma-up.sh`.
 - An approved user sees no model: check that `BYPASS_MODEL_ACCESS_CONTROL` is `true` in `/Library/LaunchDaemons/com.openwebui.serve.plist`; re-running the installer restores it.
 - Hardening drift after a reboot: see the Troubleshooting section of `gemma/hardening/README.md`.
