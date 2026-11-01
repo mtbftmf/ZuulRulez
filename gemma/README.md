@@ -14,6 +14,7 @@ Scripted, single-model local LLM builds for M-series Mac Studios that host Open 
 | Engine `mlx` | `mlx_vlm.server` in `~/mlx-venv`, `mlx-community/gemma-4-26B-A4B-it-qat-4bit` (15.6 GB, vision) in the Hugging Face cache; model id = that repo name |
 | Context | 32768, shared by at most 2 requests at once (`CTX`, `NP` in `~/.config/gemma.env`); on 32 GB it peaks at 18.2 GB wired, under the ~21 GB default GPU limit |
 | Front end | Open WebUI in `~/open-webui-venv`, LaunchDaemon `com.openwebui.serve` on `0.0.0.0:8080`, data in `~/open-webui-data` |
+| Stats page | `gemma/monitor/gemma-monitor.py` (Python standard library), LaunchDaemon `com.gemma.monitor` as houdini on `0.0.0.0:9090` (`MON_PORT`), read-only: memory, swap, CPU, GPU, power, thermals, tok/s and prompt speed from llama-server `/metrics`, Open WebUI health, 36-hour graph. GPU/power/thermals come from root LaunchDaemon `com.gemma.powermetrics` (`/usr/local/libexec/gemma-pm-sampler.sh`, a root-owned copy of `gemma/monitor/pm-sampler.sh`), which writes one sample every ~15 s to `/usr/local/var/gemma-monitor/powermetrics.txt` |
 | Users | houdini is the Open WebUI admin; friends and family get Open WebUI accounts (new sign-ups wait for approval). `BYPASS_MODEL_ACCESS_CONTROL=true` in the Open WebUI daemon, so every approved user sees every model (without it, connection models are admin-only) |
 
 Both engines serve the same API and the same model weights family, so Open WebUI doesn't care which one runs. The model id differs, though: personas and the Task Model point at one id, so settle the engine before building personas.
@@ -27,6 +28,8 @@ Both engines serve the same API and the same model weights family, so Open WebUI
 | `bin/gemma-env.sh` | Sourced by every script: loads `~/.config/gemma.env`, defaults, model id per engine |
 | `bin/gemma-up.sh` | Start whatever is stopped and wait until both answer; `RESTART=1` restarts the model server after an env change |
 | `bin/gemma-down.sh` | Stop Open WebUI and the model server (`STOP_OWUI=0` stops only the model server) |
+| `monitor/gemma-monitor.py` | Stats page on `:9090` (`/`, `/api/stats`, `/health`); history in `~/Library/Application Support/gemma-monitor`, log `~/Library/Logs/gemma-monitor.log` |
+| `monitor/pm-sampler.sh` | `powermetrics` loop for the stats page; installed root-owned to `/usr/local/libexec/gemma-pm-sampler.sh` |
 | `rebuild/00-preflight.sh` | Read-only checks on the old system: chip, memory, volume owners, RemoveMacAI, Find My, FileVault, SSH, Screen Sharing, Ethernet, available Golden Gate update |
 | `rebuild/05-inventory.sh` | Read-only snapshot before a wipe: apps (version, App Store or not, size), Homebrew, launchd items, profiles, one user's account details (default UID 503) and every file in their home folder (size, date, path; caches skipped). Output stays on that Mac, never in the repo |
 | `rebuild/06-inventory-diff.py` | Compares two snapshots (e.g. M1 vs M5): report.md plus full lists of files only on each side and files that differ |
@@ -79,6 +82,8 @@ Which is faster on a given Studio is measured, not assumed: run `llm-bench.py` o
 | Task | Command |
 | --- | --- |
 | Health check | `~/ZuulRulez/gemma/rebuild/40-verify.sh` |
+| Stats page | `http://<host>.local:9090` from any computer on the LAN (JSON: `/api/stats`) |
+| Restart the stats page | `sudo launchctl kickstart -k system/com.gemma.monitor` (sampler: `system/com.gemma.powermetrics`) |
 | Start / wait until ready | `~/bin/gemma-up.sh` |
 | Apply a `gemma.env` change | `RESTART=1 ~/bin/gemma-up.sh` |
 | Switch engine | `ENGINE=mlx ~/ZuulRulez/gemma/bin/install-gemma-stack.sh` (or `ENGINE=llamacpp`) |

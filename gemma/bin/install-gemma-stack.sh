@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 # install-gemma-stack.sh — generic Gemma 4 build for an Apple Silicon Mac Studio (32 GB or more).
-# Everything runs over SSH; there is no GUI app. Two LaunchDaemons start at boot, before anyone
-# logs in, and run as this account (houdini on generic builds):
-#   com.gemma.llm        model server on 127.0.0.1:1234 (gemma/bin/gemma-serve.sh)
-#   com.openwebui.serve  Open WebUI on 0.0.0.0:8080, data in ~/open-webui-data
+# Everything runs over SSH; there is no GUI app. LaunchDaemons start at boot, before anyone
+# logs in; the first three run as this account (houdini on generic builds):
+#   com.gemma.llm          model server on 127.0.0.1:1234 (gemma/bin/gemma-serve.sh)
+#   com.openwebui.serve    Open WebUI on 0.0.0.0:8080, data in ~/open-webui-data
+#   com.gemma.monitor      read-only stats page on 0.0.0.0:9090 (gemma/monitor/gemma-monitor.py)
+#   com.gemma.powermetrics root: powermetrics sample every ~15 s for the monitor (only root-run piece)
 # Engine (ENGINE in ~/.config/gemma.env):
 #   llamacpp (default)  Homebrew llama.cpp, GGUF Q4_0 + vision projector
 #   mlx                 mlx-vlm in ~/mlx-venv, MLX 4-bit QAT build
@@ -93,6 +95,49 @@ write_owui_plist() {  # $1 = secret key
 EOF
 }
 
+write_monitor_plist() {
+  plist_head "$MON_LABEL"
+  cat <<EOF
+  <key>ProgramArguments</key>
+  <array>
+    <string>$PY311</string>
+    <string>$REPO/gemma/monitor/gemma-monitor.py</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HOME</key><string>$HOME</string>
+    <key>PATH</key><string>/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
+  <key>StandardOutPath</key><string>$MON_LOG</string>
+  <key>StandardErrorPath</key><string>$MON_LOG</string>
+</dict>
+</plist>
+EOF
+}
+
+write_pm_plist() {  # runs as root: no UserName key
+  cat <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>$PM_LABEL</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>$PM_SAMPLER</string>
+    <string>$PM_FILE</string>
+  </array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>ThrottleInterval</key><integer>30</integer>
+  <key>StandardOutPath</key><string>/dev/null</string>
+  <key>StandardErrorPath</key><string>/dev/null</string>
+</dict>
+</plist>
+EOF
+}
+
 write_llm_plist() {
   plist_head "$LLM_LABEL"
   cat <<EOF
@@ -150,12 +195,12 @@ else
   echo "No HF_TOKEN set: downloads work, but Hugging Face rate-limits them (see gemma.env.example)."
 fi
 
-step "1/8 Homebrew packages"
+step "1/9 Homebrew packages"
 brew install python@3.11 jq
 [[ "$ENGINE" == llamacpp ]] && brew install llama.cpp
 [[ -x "$PY311" ]] || die "python3.11 missing at $PY311"
 
-step "2/8 Model download ($ENGINE, ~16 GB the first time)"
+step "2/9 Model download ($ENGINE, ~16 GB the first time)"
 case "$ENGINE" in
   llamacpp)
     # llama-server downloads the GGUF and its vision projector into $LLAMA_CACHE, then serves.
@@ -185,11 +230,11 @@ case "$ENGINE" in
     ;;
 esac
 
-step "3/8 Engine setting in $ENV_FILE"
+step "3/9 Engine setting in $ENV_FILE"
 [[ -n "$CLI_ENGINE" ]] && set_env ENGINE "$ENGINE"
 grep -E '^(ENGINE|CTX|NP|PORT)=' "$ENV_FILE" | sed 's/^/  /'
 
-step "4/8 Model server daemon ($LLM_PLIST)"
+step "4/9 Model server daemon ($LLM_PLIST)"
 chmod +x "$REPO/gemma/bin/"*.sh
 mkdir -p "$(dirname "$LLM_LOG")"
 TMP="$(mktemp)"; write_llm_plist > "$TMP"
@@ -198,7 +243,7 @@ if [[ -n "$CLI_ENGINE" ]] && sudo launchctl print "system/$LLM_LABEL" >/dev/null
   sudo launchctl kickstart -k "system/$LLM_LABEL"   # engine may have changed; plist did not
 fi
 
-step "5/8 Open WebUI in $VENV"
+step "5/9 Open WebUI in $VENV"
 [[ -x "$VENV/bin/python" ]] || "$PY311" -m venv "$VENV"
 if ! "$VENV/bin/pip" show open-webui >/dev/null 2>&1; then   # upgrades: ~/bin/owui-upgrade.sh
   "$VENV/bin/pip" install --upgrade pip
@@ -209,11 +254,24 @@ mkdir -p "$DATA_DIR"
 KEYFILE="$DATA_DIR/.webui_secret_key"
 [[ -s "$KEYFILE" ]] || { openssl rand -hex 32 > "$KEYFILE"; chmod 600 "$KEYFILE"; }
 
-step "6/8 Open WebUI daemon ($OWUI_PLIST)"
+step "6/9 Open WebUI daemon ($OWUI_PLIST)"
 TMP="$(mktemp)"; write_owui_plist "$(cat "$KEYFILE")" > "$TMP"
 install_daemon "$OWUI_LABEL" "$OWUI_PLIST" "$TMP"
 
-step "7/8 Links in $BIN, offline copy in $HANDOFF"
+step "7/9 Web monitor (:$MON_PORT) and its powermetrics sampler"
+chmod +x "$REPO/gemma/monitor/"*
+# The sampler runs as root, so root gets its own copy: never a script in a user-writable folder.
+if ! sudo cmp -s "$REPO/gemma/monitor/pm-sampler.sh" "$PM_SAMPLER" 2>/dev/null; then
+  sudo mkdir -p "$(dirname "$PM_SAMPLER")"
+  sudo install -m 755 -o root -g wheel "$REPO/gemma/monitor/pm-sampler.sh" "$PM_SAMPLER"
+  sudo launchctl kickstart -k "system/$PM_LABEL" 2>/dev/null || true
+fi
+TMP="$(mktemp)"; write_pm_plist > "$TMP"
+install_daemon "$PM_LABEL" "$PM_PLIST" "$TMP"
+TMP="$(mktemp)"; write_monitor_plist > "$TMP"
+install_daemon "$MON_LABEL" "$MON_PLIST" "$TMP"
+
+step "8/9 Links in $BIN, offline copy in $HANDOFF"
 mkdir -p "$BIN" "$HANDOFF"
 stamp=$(date +%Y%m%d)
 for f in "${LINKS[@]}"; do
@@ -228,12 +286,12 @@ grep -q 'HOME/bin' "$HOME/.zprofile" 2>/dev/null || echo 'export PATH="$HOME/bin
 # Retire the LM Studio-era login item if an earlier version of this script made one.
 old="$HOME/Library/LaunchAgents/com.$USER.gemma-up.plist"
 if [[ -f "$old" ]]; then launchctl bootout "gui/$(id -u)/com.$USER.gemma-up" 2>/dev/null || true; mv "$old" "$old.retired-$stamp"; echo "  retired old login item"; fi
-for f in "$REPO/gemma/README.md" "$REPO/gemma/docs/"*.md "$REPO/gemma/bin/"* "$REPO/m5/bin/owui-upgrade.sh" "$REPO/m5/bin/llm-bench.py"; do
+for f in "$REPO/gemma/README.md" "$REPO/gemma/docs/"*.md "$REPO/gemma/bin/"* "$REPO/gemma/monitor/"* "$REPO/m5/bin/owui-upgrade.sh" "$REPO/m5/bin/llm-bench.py"; do
   [[ -f "$f" ]] && cp -p "$f" "$HANDOFF/"
 done
 echo "  $(ls "$HANDOFF" | wc -l | tr -d ' ') files in $HANDOFF"
 
-step "8/8 Start and check"
+step "9/9 Start and check"
 "$BIN/gemma-up.sh"
 
 cat <<EOF
@@ -242,6 +300,7 @@ cat <<EOF
   1. From another device open http://$(scutil --get LocalHostName 2>/dev/null || hostname).local:$OWUI_PORT
      The FIRST account you create becomes the admin: make it houdini.
      Model id in Open WebUI: $MODEL_ID
-  2. Check everything: ~/ZuulRulez/gemma/rebuild/40-verify.sh
-  3. Benchmark: python3 ~/bin/llm-bench.py --model $MODEL_ID --label $ENGINE
+  2. Stats page from any computer on the LAN: http://$(scutil --get LocalHostName 2>/dev/null || hostname).local:$MON_PORT
+  3. Check everything: ~/ZuulRulez/gemma/rebuild/40-verify.sh
+  4. Benchmark: python3 ~/bin/llm-bench.py --model $MODEL_ID --label $ENGINE
 EOF

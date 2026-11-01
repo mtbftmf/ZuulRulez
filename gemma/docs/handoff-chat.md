@@ -4,8 +4,8 @@ You are running on the Mac described below, and I am its new owner and admin. Tr
 
 ## 1. What it is
 - Mac Studio M1 Max (10 CPU / 24 GPU cores), 32 GB unified memory, macOS Golden Gate 27.2, Ethernet. Host name `M1-Studio` (`M1-Studio.local` on the same subnet).
-- A private chat AI for friends and family on the LAN: Open WebUI in the browser on port 8080, backed by one local model, Gemma 4 26B-A4B (QAT, 4-bit, text and images). Nothing is exposed to the internet: no port forwarding, no TLS.
-- One macOS account, `houdini`: admin, volume owner (authorizes macOS updates), runs both services, and is also the Open WebUI admin. No other accounts.
+- A private chat AI for friends and family on the LAN: Open WebUI in the browser on port 8080 and a read-only stats page on port 9090, backed by one local model, Gemma 4 26B-A4B (QAT, 4-bit, text and images). Nothing is exposed to the internet: no port forwarding, no TLS.
+- One macOS account, `houdini`: admin, volume owner (authorizes macOS updates), runs the services, and is also the Open WebUI admin. No other accounts.
 - Everything is command line over SSH. No desktop app is involved and nobody needs to log in on the desktop.
 
 ## 2. How it fits together
@@ -16,6 +16,7 @@ You are running on the Mac described below, and I am its new owner and admin. Tr
 | Settings | `~/.config/gemma.env` (ENGINE, CTX, NP, PORT, OWUI_PORT). Edit this, never the plists; the installer writes the plists |
 | Weights | `~/models/llama.cpp` (about 16 GB; can always be downloaded again) |
 | Scripts and docs | `~/ZuulRulez/gemma/` (README, `bin/`, `rebuild/`, `hardening/`, `docs/`); `~/bin` holds links into it; `~/ai-handoff` is an offline copy of the docs |
+| Stats page | LaunchDaemon `com.gemma.monitor` (as houdini) on 0.0.0.0:9090: `http://M1-Studio.local:9090`, JSON at `/api/stats`. Shows memory, swap, CPU, GPU, power, thermals, tok/s, prompt speed, busy requests, context in use, Open WebUI health and a 36-hour graph. GPU/power/thermal numbers come from the root daemon `com.gemma.powermetrics`, which writes `/usr/local/var/gemma-monitor/powermetrics.txt` every ~15 s. Log `~/Library/Logs/gemma-monitor.log` |
 | Other ports | 22 (SSH), 5900 (Screen Sharing) |
 
 Linux equivalents: `systemctl` → `sudo launchctl print|kickstart -k system/<label>`; unit files → `/Library/LaunchDaemons/*.plist`; `journalctl` → the log files above; `apt` → `brew`; `ss -ltnp` → `lsof -nP -iTCP -sTCP:LISTEN`; `free` → `memory_pressure`, `vm_stat`. BSD userland: `sed -i ''`.
@@ -24,6 +25,7 @@ Linux equivalents: `systemctl` → `sudo launchctl print|kickstart -k system/<la
 | Task | Command |
 | --- | --- |
 | Health check (exit code = failures) | `~/ZuulRulez/gemma/rebuild/40-verify.sh` |
+| Stats page | `http://M1-Studio.local:9090`; restart it with `sudo launchctl kickstart -k system/com.gemma.monitor` |
 | Start whatever is stopped, wait until ready | `~/bin/gemma-up.sh` |
 | Apply a `gemma.env` change | `RESTART=1 ~/bin/gemma-up.sh` |
 | Stop both (frees ~18 GB) | `~/bin/gemma-down.sh` |
@@ -46,7 +48,7 @@ Measured on this Mac: about 68 tok/s generating, about 390 tok/s reading prompts
 ## 5. Power, boot and security
 - FileVault is **off** by the previous owner's choice, so the Mac comes back by itself after a power cut (`pmset autorestart 1`). Both daemons start with nobody logged in, and everything answers about a minute after power-on.
 - Automatic login is off. Trade-off: the disk isn't encrypted, so keep the Mac somewhere private. To encrypt later: `sudo fdesetup enable -user houdini` and keep the recovery key it prints. After that, every reboot waits until someone runs `ssh houdini@` the Mac and enters the password.
-- The model server only listens on localhost. Open WebUI, SSH and Screen Sharing are LAN-facing.
+- The model server only listens on localhost. Open WebUI, the stats page, SSH and Screen Sharing are LAN-facing. The stats page has no login: anyone on the LAN can read it, nobody can change anything through it.
 
 ## 6. Hardening (Siri, Apple Intelligence, background services)
 - **RemoveMacAI** configuration profile: installed. Check it with `bash ~/ZuulRulez/gemma/rebuild/50-harden.sh status`. Turning Siri and Apple Intelligence off in Settings did not stick, which is why the profile is used.
@@ -93,4 +95,5 @@ Measured on this Mac: about 68 tok/s generating, about 390 tok/s reading prompts
 - Web page down: `tail -50 ~/Library/Logs/open-webui.log`, then `sudo launchctl kickstart -k system/com.openwebui.serve`.
 - Slow or swapping (`sysctl vm.swapusage`): lower `CTX` (for example 16384) or set `NP=1` in `gemma.env`, then `RESTART=1 ~/bin/gemma-up.sh`.
 - An approved user sees no model: check that `BYPASS_MODEL_ACCESS_CONTROL` is `true` in `/Library/LaunchDaemons/com.openwebui.serve.plist`; re-running the installer restores it.
+- Stats page down or blank: `40-verify.sh` has a Web monitor section; `tail -50 ~/Library/Logs/gemma-monitor.log`. GPU/power show `n/a` if the root sampler stopped: `sudo launchctl kickstart -k system/com.gemma.powermetrics`.
 - Hardening drift after a reboot: see the Troubleshooting section of `gemma/hardening/README.md`.

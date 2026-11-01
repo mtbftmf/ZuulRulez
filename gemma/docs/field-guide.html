@@ -129,21 +129,21 @@ footer { color: var(--muted); font-size: 0.9rem; border-top: 1px solid var(--lin
   <header class="top">
     <div class="eyebrow">Mac Studio M1 Max · macOS Golden Gate 27 · account houdini</div>
     <h1>Gemma Studio Field Guide</h1>
-    <p class="lede">A private chat AI for friends and family, running on one Mac Studio on your network. It's a Unix box with two services under launchd, driven entirely over SSH. This page shows how the pieces fit, what happens at boot, and what to do when it lands on your LAN.</p>
+    <p class="lede">A private chat AI for friends and family, running on one Mac Studio on your network. It's a Unix box with a few services under launchd, driven entirely over SSH. This page shows how the pieces fit, what happens at boot, and what to do when it lands on your LAN.</p>
     <dl class="spec">
       <div><dt>Hardware</dt><dd>M1 Max, 10 CPU / 24 GPU, 32 GB unified</dd></div>
       <div><dt>OS</dt><dd>macOS Golden Gate 27 (Darwin, zsh)</dd></div>
       <div><dt>Account</dt><dd><code>houdini</code>, the only user, admin</dd></div>
       <div><dt>Model</dt><dd>Gemma 4 26B-A4B QAT, 4-bit, text + images</dd></div>
       <div><dt>Engine</dt><dd>llama.cpp 0.8.0 (faster than MLX here: 68 vs 59 tok/s)</dd></div>
-      <div><dt>Front end</dt><dd>Open WebUI in the browser, port 8080</dd></div>
+      <div><dt>Front end</dt><dd>Open WebUI on port 8080, stats page on 9090</dd></div>
     </dl>
   </header>
 
   <section aria-labelledby="h-net">
     <div class="eyebrow">Topology</div>
     <h2 id="h-net">What talks to what</h2>
-    <p>Only three ports face the LAN. The model server never does: Open WebUI reaches it over loopback, and everyone else reaches Open WebUI.</p>
+    <p>Four ports face the LAN. The model server never does: Open WebUI and the stats page reach it over loopback, and everyone else reaches those two.</p>
     <div class="legend"><span class="l-lan">Listening on the LAN</span><span class="l-local">127.0.0.1 only</span></div>
     <div class="figure">
       <svg viewBox="0 0 920 470" role="img" aria-labelledby="net-t net-d">
@@ -174,7 +174,7 @@ footer { color: var(--muted); font-size: 0.9rem; border-top: 1px solid var(--lin
 
         <rect x="300" y="20" width="600" height="430" rx="14" class="studio"/>
         <text x="320" y="48" class="title">Mac Studio · M1-Studio.local</text>
-        <text x="320" y="66" class="small">Ethernet · launchd starts both daemons at boot, as houdini, no login needed</text>
+        <text x="320" y="66" class="small">Ethernet · launchd starts every daemon at boot, no login needed</text>
 
         <rect x="290" y="94" width="20" height="26" rx="4" class="port"/>
         <rect x="290" y="200" width="20" height="26" rx="4" class="port"/>
@@ -193,6 +193,10 @@ footer { color: var(--muted); font-size: 0.9rem; border-top: 1px solid var(--lin
         <text x="344" y="218" class="mono">:22 sshd (Remote Login)</text>
         <rect x="330" y="236" width="250" height="34" rx="8" class="lanbox"/>
         <text x="344" y="258" class="mono">:5900 Screen Sharing (VNC)</text>
+        <rect x="290" y="280" width="20" height="26" rx="4" class="port"/>
+        <path class="wire-lan" d="M220 124 C262 124 256 293 288 293" marker-end="url(#m-lan)"/>
+        <rect x="330" y="276" width="250" height="34" rx="8" class="lanbox"/>
+        <text x="344" y="298" class="mono">:9090 stats page (read-only)</text>
 
         <rect x="610" y="86" width="270" height="344" rx="10" class="localzone"/>
         <text x="626" y="110" class="title">127.0.0.1 only</text>
@@ -216,11 +220,11 @@ footer { color: var(--muted); font-size: 0.9rem; border-top: 1px solid var(--lin
         <text x="640" y="376" class="title">~/.config/gemma.env</text>
         <text x="640" y="396" class="small mono">ENGINE  CTX  NP  PORT</text>
 
-        <text x="330" y="300" class="small">Not reachable from the internet.</text>
-        <text x="330" y="318" class="small">No port forwarding, no TLS: LAN only.</text>
-        <text x="330" y="350" class="small">Nothing here is tied to an IP address:</text>
-        <text x="330" y="368" class="small">Open WebUI binds 0.0.0.0, the model</text>
-        <text x="330" y="386" class="small">server binds 127.0.0.1.</text>
+        <text x="330" y="340" class="small">Not reachable from the internet.</text>
+        <text x="330" y="358" class="small">No port forwarding, no TLS: LAN only.</text>
+        <text x="330" y="386" class="small">Nothing here is tied to an IP address:</text>
+        <text x="330" y="404" class="small">Open WebUI binds 0.0.0.0, the model</text>
+        <text x="330" y="422" class="small">server binds 127.0.0.1.</text>
       </svg>
     </div>
   </section>
@@ -238,7 +242,7 @@ footer { color: var(--muted); font-size: 0.9rem; border-top: 1px solid var(--lin
       <li>Make a <strong>DHCP reservation</strong> for that address on your router, so family bookmarks keep working.</li>
       <li>On the same subnet, <code>M1-Studio.local</code> works too (mDNS/Bonjour). It doesn't cross subnets or VLANs; use the IP or a DNS entry there.</li>
       <li>Run the health check: <code>~/ZuulRulez/gemma/rebuild/40-verify.sh</code>. Exit status is the number of failures.</li>
-      <li>Open <code>http://</code><em>its address</em><code>:8080</code> in a browser.</li>
+      <li>Open <code>http://</code><em>its address</em><code>:8080</code> in a browser for chat, and <code>:9090</code> for the stats page: memory, GPU, power, thermals, tok/s, and a 36-hour graph.</li>
     </ol>
   </section>
 
@@ -325,6 +329,7 @@ footer { color: var(--muted); font-size: 0.9rem; border-top: 1px solid var(--lin
 │       ├── bin/          <span class="c"># install, serve, up, down</span>
 │       ├── rebuild/      <span class="c"># preflight … verify, harden</span>
 │       ├── hardening/    <span class="c"># service toggles + README</span>
+│       ├── monitor/      <span class="c"># stats page on :9090</span>
 │       └── docs/         <span class="c"># runbook, handoff</span>
 ├── bin/                  <span class="c"># symlinks into ZuulRulez</span>
 ├── .config/gemma.env     <span class="c"># this host's settings</span>
@@ -333,11 +338,13 @@ footer { color: var(--muted); font-size: 0.9rem; border-top: 1px solid var(--lin
 ├── open-webui-data/      <span class="c"># users, chats: back this up</span>
 ├── owui-backups/         <span class="c"># made by owui-upgrade.sh</span>
 ├── ai-handoff/           <span class="c"># offline copy of the docs</span>
-└── Library/Logs/         <span class="c"># gemma-llm.log, open-webui.log</span>
+└── Library/Logs/         <span class="c"># gemma-llm, open-webui, gemma-monitor</span>
 
 /Library/LaunchDaemons/
 ├── com.gemma.llm.plist
 ├── com.openwebui.serve.plist
+├── com.gemma.monitor.plist        <span class="c"># stats page, as houdini</span>
+├── com.gemma.powermetrics.plist   <span class="c"># root: GPU/power sampler</span>
 └── com.macos-service-toggle.reassert.plist
 /usr/local/bin/macos-service-toggle*.sh
 /usr/local/var/macos-service-toggle/  <span class="c"># state, logs</span></code></pre>
@@ -346,6 +353,7 @@ footer { color: var(--muted); font-size: 0.9rem; border-top: 1px solid var(--lin
           <thead><tr><th>Task</th><th>Command</th></tr></thead>
           <tbody>
             <tr><td>Health check</td><td><code>~/ZuulRulez/gemma/rebuild/40-verify.sh</code></td></tr>
+            <tr><td>Stats page</td><td><code>http://M1-Studio.local:9090</code> (JSON at <code>/api/stats</code>)</td></tr>
             <tr><td>Start, wait until ready</td><td><code>~/bin/gemma-up.sh</code></td></tr>
             <tr><td>Apply a <code>gemma.env</code> change</td><td><code>RESTART=1 ~/bin/gemma-up.sh</code></td></tr>
             <tr><td>Stop, free the memory</td><td><code>~/bin/gemma-down.sh</code></td></tr>

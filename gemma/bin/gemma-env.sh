@@ -3,7 +3,7 @@
 # Values already set in the environment (e.g. ENGINE=mlx on the command line) win over the file.
 # shellcheck shell=bash disable=SC2034
 
-_gemma_keep=(ENGINE GGUF_REPO GGUF_QUANT MLX_REPO CTX NP PORT OWUI_PORT)
+_gemma_keep=(ENGINE GGUF_REPO GGUF_QUANT MLX_REPO CTX NP PORT OWUI_PORT MON_PORT)
 for _v in "${_gemma_keep[@]}"; do [[ -n "${!_v:-}" ]] && eval "_cli_$_v=\"\${$_v}\""; done
 GEMMA_ENV_FILE="${GEMMA_ENV_FILE:-$HOME/.config/gemma.env}"
 # shellcheck disable=SC1090
@@ -19,12 +19,20 @@ CTX="${CTX:-32768}"
 NP="${NP:-2}"
 PORT="${PORT:-1234}"
 OWUI_PORT="${OWUI_PORT:-8080}"
+MON_PORT="${MON_PORT:-9090}"
 
 LLM_LABEL="com.gemma.llm"
 LLM_PLIST="/Library/LaunchDaemons/$LLM_LABEL.plist"
 LLM_LOG="$HOME/Library/Logs/gemma-llm.log"
 OWUI_LABEL_DEFAULT="com.openwebui.serve"
 OWUI_PLIST_DEFAULT="/Library/LaunchDaemons/$OWUI_LABEL_DEFAULT.plist"
+MON_LABEL="com.gemma.monitor"
+MON_PLIST="/Library/LaunchDaemons/$MON_LABEL.plist"
+MON_LOG="$HOME/Library/Logs/gemma-monitor.log"
+PM_LABEL="com.gemma.powermetrics"
+PM_PLIST="/Library/LaunchDaemons/$PM_LABEL.plist"
+PM_SAMPLER="/usr/local/libexec/gemma-pm-sampler.sh"
+PM_FILE="/usr/local/var/gemma-monitor/powermetrics.txt"
 LLAMA_CACHE="${LLAMA_CACHE:-$HOME/models/llama.cpp}"
 MLX_VENV="${MLX_VENV:-$HOME/mlx-venv}"
 export LLAMA_CACHE

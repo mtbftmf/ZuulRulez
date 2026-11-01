@@ -72,6 +72,22 @@ k1=$(/usr/libexec/PlistBuddy -c "Print :EnvironmentVariables:WEBUI_SECRET_KEY" "
 [[ -n "$k1" && "$k1" == "$(cat "$HOME/open-webui-data/.webui_secret_key" 2>/dev/null)" ]] && ok "secret key matches (logins survive restarts)" || fail "secret key mismatch"
 info "Open WebUI $("$HOME/open-webui-venv/bin/pip" show open-webui 2>/dev/null | awk '/^Version:/ {print $2}')"
 
+echo "== Web monitor"
+for lb in "$MON_LABEL" "$PM_LABEL"; do
+  $pl print "system/$lb" >/dev/null 2>&1 && ok "daemon $lb loaded (starts at boot)" || fail "daemon $lb not loaded (re-run the installer)"
+done
+l=$(listen "$MON_PORT")
+[[ "$l" == *"*:$MON_PORT"* || "$l" == *"0.0.0.0:$MON_PORT"* ]] && ok "stats page on the LAN: http://$(scutil --get LocalHostName 2>/dev/null).local:$MON_PORT" || fail "monitor not listening on :$MON_PORT (${l:-nothing})"
+s=$(curl -fs --max-time 5 "http://localhost:$MON_PORT/api/stats" 2>/dev/null)
+if [[ -n "$s" ]]; then
+  [[ "$(jq -r '.state.llm_up' <<<"$s")" == true ]] && ok "monitor sees the model server" || fail "monitor: model server $(jq -r '.state.llm_status' <<<"$s")"
+  [[ "$ENGINE" != llamacpp || "$(jq -r '.state.metrics_known' <<<"$s")" == true ]] && ok "llama.cpp metrics readable" || fail "llama.cpp /metrics names not recognised (tok/s will be blank)"
+  pm=$(jq -r '.state.pm_status' <<<"$s")
+  [[ "$pm" == ok ]] && ok "powermetrics sampler fresh (GPU, power, thermals)" || fail "powermetrics sampler: $pm"
+else
+  fail "no answer from /api/stats on :$MON_PORT"
+fi
+
 echo "== Hardening (RemoveMacAI, service toggles)"
 if sudo -n true 2>/dev/null; then
   sudo profiles list 2>/dev/null | grep -q io.github.omlahore.removemacai && ok "RemoveMacAI profile installed" || info "RemoveMacAI profile not installed"
