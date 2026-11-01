@@ -87,7 +87,7 @@ svg .port { fill: var(--lan); }
 svg .port-t { fill: var(--panel); font-family: var(--font-mono); font-size: 12px; font-weight: 600; }
 svg .port-local { fill: var(--local); }
 
-.callout { border-left: 4px solid var(--lan); background: var(--panel); padding: 16px 18px; border-radius: 0 8px 8px 0; display: grid; gap: 10px; }
+.callout { border-left: 4px solid var(--lan); background: var(--panel); padding: 16px 18px; border-radius: 0 8px 8px 0; display: grid; gap: 10px; align-content: start; }
 .callout.ok { border-left-color: var(--local); }
 .steps { margin: 0; padding-left: 1.3em; display: grid; gap: 8px; max-width: 72ch; }
 
@@ -372,6 +372,34 @@ footer { color: var(--muted); font-size: 0.9rem; border-top: 1px solid var(--lin
     </ol>
   </section>
 
+  <section aria-labelledby="h-tools">
+    <div class="eyebrow">Optional</div>
+    <h2 id="h-tools">Optional tools: web search, folders, GitHub</h2>
+    <p>Nothing here is set up yet. Add what you want; the model works fine without any of it.</p>
+    <div class="grid2">
+      <div class="callout">
+        <h3>Internet search, per chat</h3>
+        <p>Gemma only knows what it learned up to its training cutoff. Web search is how it gets current information: news, prices, recent releases, anything newer than the model.</p>
+        <p>Once a search engine is set up, each chat gets its own <strong>Web Search</strong> toggle in the message box. Turning it on in one chat doesn't turn it on anywhere else, and it stays on in that chat until you turn it off.</p>
+        <ol class="steps">
+          <li>Admin Panel → Settings → Web Search: enable it and pick an engine. <strong>DuckDuckGo</strong> needs no key; <strong>Brave</strong> needs an API key from the Brave Search API site. Keep the key in Open WebUI, not in <code>~/ZuulRulez</code>.</li>
+          <li>Save. The toggle then appears in every chat's message box, off by default.</li>
+          <li>Each search adds its results to the prompt: about 13 s of extra wait per 5,000 tokens on this M1. The 32K context leaves room for several searches in one chat.</li>
+        </ol>
+      </div>
+      <div class="callout">
+        <h3>Local folders and GitHub</h3>
+        <p>You can let the model read and search chosen folders on the Studio, or repositories on GitHub or another code host, so it can answer questions about your files and code.</p>
+        <ol class="steps">
+          <li>Add them as tools: small Python tools under Workspace → Tools, or OpenAPI/MCP tool servers in the admin settings (for example a filesystem server or a GitHub server).</li>
+          <li><strong>Folders:</strong> point a folder tool at one dedicated folder, such as <code>~/shared-docs</code>. Never point it at <code>~</code> or <code>~/.config</code>: tools run as houdini.</li>
+          <li><strong>GitHub:</strong> use a fine-grained, read-only token limited to the repos it needs, stored in Open WebUI.</li>
+          <li>Tools can be enabled per model and per user, so decide whether family members get them or only you. Check that a tool actually gets called before relying on it.</li>
+        </ol>
+      </div>
+    </div>
+  </section>
+
   <section aria-labelledby="h-day1">
     <div class="eyebrow">Handover</div>
     <h2 id="h-day1">First day with it</h2>
@@ -381,8 +409,7 @@ footer { color: var(--muted); font-size: 0.9rem; border-top: 1px solid var(--lin
         <li><span>The disk is not encrypted (FileVault off, so it restarts unattended). Keep the Mac somewhere private. To encrypt anyway: <code>sudo fdesetup enable -user houdini</code>; then every reboot waits for an SSH login to unlock it.</span></li>
         <li><span>Sign in to Open WebUI as the admin account and change its password. New sign-ups wait as <strong>pending</strong> until you approve them under Admin Panel → Users; approved users all see the model.</span></li>
         <li><span>Add your SSH key: <code>ssh-copy-id houdini@</code><em>studio</em></span></li>
-        <li><span><strong>Your call: web search.</strong> It's off, so chats have no internet toggle. To turn it on: Admin Panel → Settings → Web Search, enable it, pick an engine (DuckDuckGo needs no key; Brave or Tavily need one; SearXNG can be self-hosted). Each search adds its results to the prompt, roughly 13 s of extra wait per 5,000 tokens on this M1.</span></li>
-        <li><span><strong>Your call: tools.</strong> Nothing is wired in yet. Open WebUI can give the model access to local folders, GitHub or other code hosts, either as Python tools (Workspace → Tools) or as OpenAPI/MCP tool servers (admin settings, external tools). Limit a folder tool to one dedicated folder, give a GitHub token read-only access to just the repos it needs, and decide whether family members get tools or only you. Tools run on the Studio as houdini.</span></li>
+        <li><span><strong>Your call: web search and tools.</strong> Both are off until you set them up; see <a href="#h-tools">Optional tools</a>.</span></li>
       </ul>
       <ul class="checklist">
         <li><span>Screen Sharing from Linux: any VNC client on port 5900 works once a VNC password is set in System Settings → General → Sharing → Remote Management → Options.</span></li>
