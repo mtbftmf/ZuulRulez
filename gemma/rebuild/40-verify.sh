@@ -11,7 +11,8 @@ fails=0
 ok()   { printf '  OK    %s\n' "$*"; }
 fail() { printf '  FAIL  %s\n' "$*"; fails=$((fails + 1)); }
 info() { printf '  INFO  %s\n' "$*"; }
-listen() { lsof -nP -iTCP:"$1" -sTCP:LISTEN 2>/dev/null | awk 'NR>1 {print $9}' | sort -u | tr '\n' ' '; }
+# lsof as a normal user misses some daemons' sockets (seen with the monitor on macOS 27); use sudo when cached.
+listen() { { sudo -n lsof -nP -iTCP:"$1" -sTCP:LISTEN 2>/dev/null || lsof -nP -iTCP:"$1" -sTCP:LISTEN 2>/dev/null; } | awk 'NR>1 {print $9}' | sort -u | tr '\n' ' '; }
 
 echo "== System"
 v=$(sw_vers -productVersion)
@@ -78,7 +79,7 @@ for lb in "$MON_LABEL" "$PM_LABEL"; do
 done
 l=$(listen "$MON_PORT")
 [[ "$l" == *"*:$MON_PORT"* || "$l" == *"0.0.0.0:$MON_PORT"* ]] && ok "stats page on the LAN: http://$(scutil --get LocalHostName 2>/dev/null).local:$MON_PORT" || fail "monitor not listening on :$MON_PORT (${l:-nothing})"
-s=$(curl -fs --max-time 5 "http://localhost:$MON_PORT/api/stats" 2>/dev/null)
+s=""; for _ in 1 2 3 4 5 6; do s=$(curl -fs --max-time 5 "http://127.0.0.1:$MON_PORT/api/stats" 2>/dev/null) && break; sleep 3; done   # up to ~20 s after a restart
 if [[ -n "$s" ]]; then
   [[ "$(jq -r '.state.llm_up' <<<"$s")" == true ]] && ok "monitor sees the model server" || fail "monitor: model server $(jq -r '.state.llm_status' <<<"$s")"
   [[ "$ENGINE" != llamacpp || "$(jq -r '.state.metrics_known' <<<"$s")" == true ]] && ok "llama.cpp metrics readable" || fail "llama.cpp /metrics names not recognised (tok/s will be blank)"
