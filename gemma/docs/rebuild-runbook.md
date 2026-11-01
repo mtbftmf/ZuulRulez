@@ -200,14 +200,15 @@ bash ~/ZuulRulez/gemma/rebuild/50-harden.sh snapshot before
    ```
    Approve it over Screen Sharing: System Settings → General → Device Management.
 2. **Service toggles.** Install from the repo copy in `gemma/hardening/` (README there: install, dry run, `on`, reassert daemon, undo). It protects com.apple.watchdogd and com.apple.rapportd and works for any account. Over SSH on a headless host, session-agent entries report `[SKIP]`; that is expected.
-3. Reboot, unlock over SSH, wait a few minutes, then:
+3. **Apple feedback/diagnostics hosts.** `bash ~/ZuulRulez/gemma/rebuild/50-harden.sh telemetry` blocks them in `/etc/hosts` and turns analytics sharing off (details in `gemma/hardening/README.md`).
+4. Reboot, unlock over SSH, wait a few minutes, then:
    ```bash
    bash ~/ZuulRulez/gemma/rebuild/50-harden.sh snapshot after
    bash ~/ZuulRulez/gemma/rebuild/50-harden.sh compare
    bash ~/ZuulRulez/gemma/rebuild/50-harden.sh status
    ~/ZuulRulez/gemma/rebuild/40-verify.sh
    ```
-4. One CHANGELOG line with the compare result (RSS, swap, process count) and the verify result.
+5. One CHANGELOG line with the compare result (RSS, swap, process count) and the verify result.
 
 **macOS updates from now on:** `10-upgrade-os.sh` removes RemoveMacAI on request before updating; afterwards `50-harden.sh profile` puts it back, then `50-harden.sh status` and the post-update checklist in `docs/m5-max-post-os-update-verification.md` (overrides held, watchdogd enabled, rapportd untouched).
 

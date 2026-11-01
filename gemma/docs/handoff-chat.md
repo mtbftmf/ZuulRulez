@@ -57,12 +57,14 @@ Measured on this Mac: about 68 tok/s generating, about 390 tok/s reading prompts
   - Undo everything: `sudo /usr/local/bin/macos-service-toggle.sh off`, then `sudo launchctl bootout system/com.macos-service-toggle.reassert`.
   - Never disabled: sshd, Remote Management, Time Machine, `com.apple.watchdogd` (the system watchdog) and `com.apple.rapportd`.
   - Details and troubleshooting: `~/ZuulRulez/gemma/hardening/README.md`.
+- **Apple feedback/diagnostics hosts** (`radarsubmissions.apple.com`) are blocked in `/etc/hosts` (between `# >>> gemma block-telemetry` marker lines) and analytics sharing is off. Check: `sudo bash ~/ZuulRulez/gemma/hardening/block-telemetry.sh status`. Re-apply after a macOS update if `40-verify.sh` says so: `bash ~/ZuulRulez/gemma/rebuild/50-harden.sh telemetry`. Undo: same script with `off`.
 
 ## 7. macOS updates (order matters)
 1. `bash ~/ZuulRulez/gemma/rebuild/10-upgrade-os.sh` over SSH. It offers to remove RemoveMacAI first (the profile stalls downloads) and asks for houdini's password.
 2. After the update: `bash ~/ZuulRulez/gemma/rebuild/50-harden.sh profile` reinstalls the profile. `40-verify.sh` fails until you do.
 3. If a download stalls even with the profile removed, `com.apple.mobileassetd` is the suspect. Run `sudo /usr/local/bin/macos-service-toggle.sh off`, update, then run `on` again.
-4. Finish with `40-verify.sh`.
+4. Re-apply the hosts block if an update reset `/etc/hosts`: `bash ~/ZuulRulez/gemma/rebuild/50-harden.sh telemetry`.
+5. Finish with `40-verify.sh`.
 
 ## 8. Backups
 - `~/open-webui-data` is everyone's accounts and chats, and the only thing that can't be recreated. `owui-upgrade.sh` writes a verified backup to `~/owui-backups` (keeps 5) before every upgrade.

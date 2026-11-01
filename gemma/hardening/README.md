@@ -30,6 +30,18 @@ On a generic build nobody logs in on the desktop, so houdini's `gui/501` session
 - No `/usr/local/var/macos-service-toggle/reassert.log`: the daemon has never run (the script writes that log on every run, even with nothing to do). Run `sudo launchctl kickstart -k system/com.macos-service-toggle.reassert` and check the log again.
 - After a reboot, check: `grep 'REASSERT run:' /usr/local/var/macos-service-toggle/reassert.log | tail -2` shows a run with the new boot time, and `sudo /usr/local/bin/macos-service-toggle.sh status` shows no `DRIFTED` lines.
 
+## Apple feedback and diagnostics hosts
+
+`block-telemetry.sh` stops the host reporting to Apple's feedback/diagnostics servers: it adds `0.0.0.0` and `::` entries for the hosts in its `BLOCK_HOSTS` list to `/etc/hosts`, between marker lines, and forces "Share Mac Analytics" and "Share with app developers" off. Run it through `50-harden.sh`:
+
+```bash
+bash ~/ZuulRulez/gemma/rebuild/50-harden.sh telemetry      # apply or refresh (asks for sudo)
+sudo bash ~/ZuulRulez/gemma/hardening/block-telemetry.sh status
+sudo bash ~/ZuulRulez/gemma/hardening/block-telemetry.sh off   # undo (analytics settings stay off)
+```
+
+Each `on`/`off` keeps a dated copy of `/etc/hosts` next to it (`/etc/hosts.bak-gemma-*`). Hosts entries work whichever process makes the call, so no system daemon is disabled for this. Currently blocked: `radarsubmissions.apple.com`, seen from the M1 in Nov 2026 with analytics already off (`SubmitDiagInfo` honoured the opt-out and sent nothing, so another component, most likely Feedback Assistant's background service, was the caller). To block another host, add it to `BLOCK_HOSTS` and run `telemetry` again. macOS updates can rewrite `/etc/hosts`: `40-verify.sh` fails until `telemetry` is run again.
+
 ## Watch
 
 `com.apple.mobileassetd` is in the list (high-risk group). Like the RemoveMacAI profile, it is part of how macOS downloads update assets. If a macOS update stalls with the profile already removed, run `sudo /usr/local/bin/macos-service-toggle.sh off`, update, then `on` again.

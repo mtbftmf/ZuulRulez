@@ -315,6 +315,7 @@ footer { color: var(--muted); font-size: 0.9rem; border-top: 1px solid var(--lin
     <ol class="steps">
       <li><strong>Healthy:</strong> system services read <code>[still disabled]</code>, nothing reads <code>DRIFTED</code>. Per-user <code>gui/501</code> entries read <code>[unknown/not found]</code> when nobody is logged in on the desktop; that's normal.</li>
       <li><strong>macOS update:</strong> <code>10-upgrade-os.sh</code> (offers to remove the profile) → update → <code>50-harden.sh profile</code> → <code>40-verify.sh</code>. If a download stalls anyway: toggles <code>off</code>, update, <code>on</code> again (<code>mobileassetd</code> is on the list).</li>
+      <li><strong>Apple feedback reporting:</strong> <code>radarsubmissions.apple.com</code> is blocked in <code>/etc/hosts</code> and analytics sharing is off. Check with <code>sudo bash ~/ZuulRulez/gemma/hardening/block-telemetry.sh status</code>; after a macOS update, if <code>40-verify.sh</code> complains, run <code>bash ~/ZuulRulez/gemma/rebuild/50-harden.sh telemetry</code>.</li>
       <li><strong>Undo all of it:</strong> <code>sudo /usr/local/bin/macos-service-toggle.sh off</code>, then <code>sudo launchctl bootout system/com.macos-service-toggle.reassert</code>. Logs and state: <code>/usr/local/var/macos-service-toggle/</code>.</li>
     </ol>
   </section>

@@ -6,7 +6,8 @@
 #   bash 50-harden.sh profile           install RemoveMacAI (approve it over Screen Sharing), wait for it
 #   bash 50-harden.sh snapshot after    same snapshot after the toggles and a reboot
 #   bash 50-harden.sh compare           before vs after, for the CHANGELOG line
-#   bash 50-harden.sh status            profile installed? toggle tool and its status
+#   bash 50-harden.sh telemetry         block Apple feedback/diagnostics hosts, analytics off
+#   bash 50-harden.sh status            profile installed? toggle tool and its status, telemetry block
 #
 # The toggle tool itself (macos-service-toggle.sh + its reassert LaunchDaemon) is installed the same
 # way as on the MBP, from the MBP's fixed copy (com.apple.watchdogd protected, rapportd never disabled).
@@ -18,6 +19,7 @@ PROFILE_ID="io.github.omlahore.removemacai"
 PROFILE_FILE="${PROFILE_FILE:-$HOME/Downloads/RemoveMacAI.mobileconfig}"
 TOGGLE="${TOGGLE:-/usr/local/bin/macos-service-toggle.sh}"
 DIR="$HOME/hardening"
+TELEMETRY="$(cd "$(dirname "${BASH_SOURCE[0]}")/../hardening" && pwd)/block-telemetry.sh"
 MARKER="$HOME/.config/removemacai-reinstall"
 mkdir -p "$DIR"
 
@@ -54,6 +56,8 @@ case "${1:-status}" in
     printf "Waiting up to 10 min for the profile "
     for _ in $(seq 1 120); do has_profile && break; printf "."; sleep 5; done; echo
     if has_profile; then rm -f "$MARKER"; echo "✓ RemoveMacAI installed"; else echo "not installed yet — rerun when approved"; exit 1; fi ;;
+  telemetry)
+    sudo bash "$TELEMETRY" on ;;
   compare)
     [[ -f "$DIR/before.txt" && -f "$DIR/after.txt" ]] || { echo "error: need $DIR/before.txt and after.txt" >&2; exit 1; }
     paste "$DIR/before.txt" "$DIR/after.txt" | awk -F'\t' '{printf "%-16s %-50s %s\n", $1, $2, $4}' ;;
@@ -63,6 +67,7 @@ case "${1:-status}" in
     [[ -f "$MARKER" ]] && echo "Reminder: profile was removed for a macOS update on $(cat "$MARKER") — reinstall: bash $0 profile"
     if [[ -x "$TOGGLE" ]]; then sudo "$TOGGLE" status; else echo "service toggles: $TOGGLE not installed"; fi
     sudo launchctl print-disabled system | grep -E 'watchdogd' || echo "watchdogd: not disabled (good)"
-    sudo launchctl print-disabled "gui/$(id -u)" 2>/dev/null | grep -E 'rapportd' && echo "WARNING: rapportd is disabled — it breaks AirDrop and Universal Control" ;;
-  *) sed -n '2,16p' "$0"; exit 1 ;;
+    sudo launchctl print-disabled "gui/$(id -u)" 2>/dev/null | grep -E 'rapportd' && echo "WARNING: rapportd is disabled — it breaks AirDrop and Universal Control"
+    sudo bash "$TELEMETRY" status || echo "telemetry block incomplete — fix: bash $0 telemetry" ;;
+  *) sed -n '2,17p' "$0"; exit 1 ;;
 esac

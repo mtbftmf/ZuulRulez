@@ -96,6 +96,12 @@ else
   info "profile check needs sudo: run 'sudo -v' first"
 fi
 [[ -f "$HOME/.config/removemacai-reinstall" ]] && fail "RemoveMacAI was removed for a macOS update on $(cat "$HOME/.config/removemacai-reinstall"): reinstall with 50-harden.sh profile"
+tb="$REPO/gemma/hardening/block-telemetry.sh"
+if grep -q '^# >>> gemma block-telemetry' /etc/hosts 2>/dev/null; then
+  bash "$tb" status >/dev/null 2>&1 && ok "Apple feedback/diagnostics hosts blocked, analytics off" || fail "telemetry block incomplete (a macOS update may have reset /etc/hosts): bash ~/ZuulRulez/gemma/rebuild/50-harden.sh telemetry"
+else
+  info "telemetry block not applied (bash ~/ZuulRulez/gemma/rebuild/50-harden.sh telemetry)"
+fi
 [[ -x /usr/local/bin/macos-service-toggle.sh ]] && info "service toggles installed (check: sudo /usr/local/bin/macos-service-toggle.sh status)" || info "service toggles not installed"
 
 echo
