@@ -44,3 +44,15 @@ Imported working monitor source into `M-ProcessorSystemMonitor` branch.
 - `GHz` shows `N/A` when `powermetrics` P-cluster frequency is unavailable.
 - Background image path must be set in `~/.config/macmonitor.env`;
   the widget runs without it (transparent background fallback).
+
+## 2026-11-01 — ARD typing lag diagnosed and resolved (Mac Studio M5 Max)
+
+**Symptom:** 2-3s keyboard lag when typing via Apple Remote Desktop after Golden Gate 27.2 + Xcode update.
+
+**Diagnosis:** `system_profiler SPDisplaysDataType` showed only a "Screen Sharing Virtual Display" — the AOC U2790B (connected via DP 1.2 through CalDigit TS3+) had slept and macOS dropped it, falling back to a screensharingd virtual framebuffer. WindowServer logs showed repeated `failed set_cursor_surface` errors against the virtual display, stalling ARD input event dispatch.
+
+**Fix:** Connected AOC directly via HDMI (Mac Studio HDMI 2.1 port). Real hardware display restored; virtual display gone. ARD cursor compositing works correctly against a real framebuffer.
+
+**Prevent recurrence:** `sudo pmset -a displaysleep 0` — keeps display signal active so macOS never drops the real display and falls back to virtual.
+
+**Note for headless deployments:** Any Mac running without a physical display will exhibit this ARD lag. Use an HDMI dummy plug (4K@60Hz rated) to give macOS a real framebuffer. Confirmed needed for M1 Studio Max shipping as headless Gemma 4 LLM server.
