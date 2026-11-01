@@ -1082,6 +1082,7 @@ class MonitorApp:
             w.bind("<Button-1>", lambda e: self._toggle_minimize())
 
         self._save_counter = 0
+        self._graph_counter = 0   # throttle PIL graph redraws
 
         if _was_minimized:
             self._minimized = True
@@ -1112,6 +1113,7 @@ class MonitorApp:
             self._min_btn.place(x=STATS_WIDTH-18, y=6)
             self.root.geometry(f"{WIN_WIDTH}x{WIN_HEIGHT}")
             self._minimized = False
+            self._graph_counter = 3   # force immediate graph draw on next update tick
             _save_window_state(self.root.winfo_x(), self.root.winfo_y(), False)
         else:
             self._min_btn.place_forget()
@@ -1160,7 +1162,10 @@ class MonitorApp:
             # Update FLS row label text in-place (changes "fls t/s" ↔ "fls* t/s")
             for item_id in self.canvas.find_withtag("fls_label"):
                 self.canvas.itemconfig(item_id, text=fls_lbl, fill=fls_color)
-            self.draw_graph()
+            self._graph_counter += 1
+            if self._graph_counter >= 3:   # redraw every 15 s (3 × 5 s ticks)
+                self.draw_graph()
+                self._graph_counter = 0
         else:
             self._mini_mem.config(text=f"MEM:{mem_pct}", fg=gui_mem_color)
             self._mini_gpu.config(text=f"GPU:{gpu_txt}")
