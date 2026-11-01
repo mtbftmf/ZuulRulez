@@ -115,6 +115,7 @@ def host_facts():
         "engine": ENGINE,
         "llm_port": LLM_PORT,
         "owui_port": OWUI_PORT,
+        "ctx": _setting("CTX", ""),
     }
     m = re.search(r"Total Number of Cores:\s*(\d+)", _run(["system_profiler", "SPDisplaysDataType"], 20))
     if m:
@@ -273,8 +274,10 @@ class LlamaPoller:
         busy = _first(m, "llamacpp:requests_processing")
         r["requests_processing"] = int(busy) if busy is not None else None
         r["requests_deferred"] = int(_first(m, "llamacpp:requests_deferred") or 0)
-        kv = _first(m, "llamacpp:kv_cache_usage_ratio")
+        kv = _first(m, "llamacpp:kv_cache_usage_ratio")            # older llama.cpp only
         r["kv_pct"] = round(kv * 100, 1) if kv is not None else None
+        mx = _first(m, "llamacpp:n_tokens_max")                     # largest request so far
+        r["tokens_max"] = int(mx) if mx is not None else None
         r["tokens_total"] = int(tok) if tok is not None else None
         r["metrics_known"] = tok is not None and tok_s is not None
         now = time.time()
@@ -379,7 +382,7 @@ footer{color:var(--muted);font-size:11px;margin-top:10px}
   <div class="row"><span class="k">Last</span><span class="v" id="tpslast">—</span></div>
   <div class="row"><span class="k">Prompt reading</span><span class="v" id="prefill">—</span></div>
   <div class="row"><span class="k">Busy / queued</span><span class="v" id="req">—</span></div>
-  <div class="row"><span class="k">Context in use</span><span class="v" id="kv">—</span></div>
+  <div class="row"><span class="k" id="kvk">Largest request</span><span class="v" id="kv">—</span></div>
  </div>
  <div class="card"><h2>Memory</h2>
   <div class="row"><span class="k">Used</span><span class="v" id="mem" style="color:var(--mem)">—</span></div>
@@ -445,7 +448,8 @@ async function tick(){
   $('tpslast').textContent=s.tps_last?f(s.tps_last,1,' tok/s')+(s.tps_last_age_s!=null?' · '+(s.tps_last_age_s<60?'just now':Math.round(s.tps_last_age_s/60)+' min ago'):''):'—';
   $('prefill').textContent=f(s.prefill_last,0,' tok/s');
   $('req').textContent=(s.requests_processing??'—')+' / '+(s.requests_deferred??'—');
-  $('kv').textContent=f(s.kv_pct,0,'%');
+  if(s.kv_pct!=null){$('kvk').textContent='Context in use';$('kv').textContent=f(s.kv_pct,0,'%')}
+  else $('kv').textContent=s.tokens_max!=null?s.tokens_max.toLocaleString()+' tok'+(h.ctx?' of '+Number(h.ctx).toLocaleString():''):'—';
   const memPct=s.mem_used_gb/h.mem_total_gb*100;
   $('mem').textContent=f(s.mem_used_gb,1)+' / '+h.mem_total_gb+' GB';bar('membar',memPct);
   $('wired').textContent=f(s.wired_gb,1,' GB');$('comp').textContent=f(s.compressed_gb,1,' GB');
@@ -505,10 +509,19 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, *args):
         pass
 
-def main():
-    _FACTS.update(host_facts())
+def _load_facts():
+    facts = host_facts()                      # system_profiler can take many seconds at boot
     with _lock:
-        _state["mem_total_gb"] = _FACTS["mem_total_gb"]
+        _FACTS.update(facts)
+        _state["mem_total_gb"] = facts["mem_total_gb"]
+
+def main():
+    # Open the port first: host details are gathered in the background, so the page is up at once.
+    _FACTS.update({"host": socket.gethostname().split(".")[0], "chip": "", "cpu_cores": "",
+                   "gpu_cores": "", "mem_total_gb": round(int(_sysctl("hw.memsize") or 0) / 2**30, 1),
+                   "engine": ENGINE, "llm_port": LLM_PORT, "owui_port": OWUI_PORT,
+                   "ctx": _setting("CTX", "")})
+    _state["mem_total_gb"] = _FACTS["mem_total_gb"]
     load_history()
 
     def stop(*_):
@@ -517,8 +530,9 @@ def main():
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)
 
-    threading.Thread(target=poll_loop, daemon=True).start()
     srv = ThreadingHTTPServer(("0.0.0.0", MON_PORT), Handler)
+    threading.Thread(target=_load_facts, daemon=True).start()
+    threading.Thread(target=poll_loop, daemon=True).start()
     srv.daemon_threads = True
     print(f"gemma-monitor on :{MON_PORT} (model server :{LLM_PORT}, Open WebUI :{OWUI_PORT})", flush=True)
     srv.serve_forever()
