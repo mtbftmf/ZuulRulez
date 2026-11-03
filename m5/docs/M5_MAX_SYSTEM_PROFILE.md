@@ -4,8 +4,9 @@ Applies ONLY to the M5 Max Studio 128 GB host. Generic M-series Studios running 
 Gemma 4 build for friends-and-family hosting (houdini account, `gemma/` folder) do not
 use any of this: no Flash-Next, no mlx-serve, no 128 GB memory budget.
 
-Current as of 2026-10-25. Dated history is in `CHANGELOG.md`; the switch from the
+Current as of 2026-11-03. Dated history is in `CHANGELOG.md`; the switch from the
 LM Studio GGUF to mlx-serve is planned and tracked in `M5_MAX_MLX_SWITCH_PLAN.md`.
+Gemma moved from LM Studio to a second mlx-serve on Nov 3 (see Gemma below).
 
 ## Model and engine
 
@@ -36,6 +37,35 @@ LM Studio GGUF to mlx-serve is planned and tracked in `M5_MAX_MLX_SWITCH_PLAN.md
 
 mlx-serve picks its own prefill chunk from free memory (2048 tokens at load on Oct 24) and
 plans against a 110 GB wired budget internally; `iogpu.wired_limit_mb` stays 0 (default).
+
+## Gemma (router, vision, task model)
+
+| Item | Setting |
+| --- | --- |
+| Model | Gemma 4 26B-A4B QAT, MLX pack `mlx-community/gemma-4-26B-A4B-it-qat-4bit`, identifier `gemma-4-26b-a4b-it-qat` (same ID LM Studio used, so personas and the router are unchanged) |
+| Files | Hugging Face cache snapshot, linked as `~/.mlx-serve/models/gemma-4-26b-a4b-it-qat`; weights ~14.5 GB, vision encoder included (27 layers; every image scaled to 768×768 = 256 tokens) |
+| Server | Second mlx-serve on `127.0.0.1:11235`, LaunchAgent `com.$USER.mlx-serve-gemma` (template `m5/launchd/mlx-serve-gemma.plist.template`): `--ctx-size 32768 --max-concurrent 2 --metrics`; PLD left at its default (on, but it switches itself off when drafts aren't accepted, which was every bench request) |
+| Logs | `~/.mlx-serve/logs/mlx-serve-11235.log`, `~/Library/Logs/mlx-serve-gemma.log` |
+| Thinking | Off unless a request sends `chat_template_kwargs` `{"enable_thinking": true}` (LM Studio's Gemma thought by default: 509 of 512 bench tokens were reasoning). Auto: add it to `FAST_PARAMS`; a persona: custom parameter |
+| Concurrency | Gemma 4 has no batched decode in mlx-serve: two requests interleave (take turns) |
+| Prompt cache | Hot prefix cache capped at 2 GB (a 28K prompt keeps ~9.5K tokens) |
+| LM Studio | Used only for the Flash GGUF rollback. `flash-up.sh` stops its server in mlx mode. Uninstall with the GGUF |
+
+Measured Nov 3 (`llm-bench.py --mem`, LM Studio's Gemma unloaded; pressure normal, no swap):
+
+| | LM Studio GGUF (thinking on) | mlx-serve (thinking off) |
+| --- | --- | --- |
+| Decode | 125.0 tok/s | 142.4 tok/s |
+| Prefill @ 7.8K | 3,542 tok/s | 4,613 tok/s |
+| TTFT | 129 ms | 60 ms |
+| @ 28K | 90.7 tok/s, 10 s TTFT (Oct 16) | 108.4 tok/s, prefill 4,087 tok/s, 6.9 s TTFT |
+| Flash + Gemma both busy (Gemma with an image) | Flash 56.8, Gemma 49.1 tok/s | Flash 62.9, Gemma 78.5 tok/s |
+| Peak wired, both busy | 101.7 GB | 98.3 GB |
+
+Vision check: a 392×348 screenshot of the System Monitor widget was described correctly with every
+value quoted exactly, 286 prompt tokens, ~1 s. A run with both Gemma copies loaded next to Flash
+(12 GB swap, pressure warn) had the 28K prompt refused by mlx-serve's admission check (~8.6 GB GPU
+memory free for a 10.3 GB prompt); it passed once LM Studio's copy was unloaded.
 
 ## Reasoning effort
 
@@ -73,7 +103,7 @@ GGUF on LM Studio for comparison: 48.4 tok/s decode, 934 tok/s prefill, 45.3 @ 2
 | --- | --- |
 | Idle, both models loaded | ~18 GB (mlx-serve releases wiring when idle) |
 | Flash generating | ~88-98 GB |
-| Flash + Gemma both busy | peak 101.7 GB |
+| Flash + Gemma both busy | peak 98.3 GB (Gemma on mlx-serve, Nov 3); 101.7 GB with Gemma on LM Studio |
 
 No swap growth and pressure normal in every test. The n-gram table (`ngram_warm_bytes`, ~32 GB)
 lives in the page cache, not wired memory, so `top`'s "used" sits near 126 GB. Flash process
@@ -105,24 +135,31 @@ Replace the older Flash-Next memories (engine, effort, measured performance) wit
 1. M5 Max Flash-Next engine: Flash-Next (`flash-next`) runs on mlx-serve 26.10.3 (MLX pack
    ddalcu/Qwen3.8-Flash-Next-MLX-Serve-mixed-4-8bit) at 127.0.0.1:11234, LaunchAgent
    com.$USER.mlx-serve, 128K context, MTP on, 2 concurrent requests, metrics at /metrics.json.
-   Gemma 4 26B-A4B QAT stays on LM Studio at localhost:1234 (32K). Open WebUI has both
-   connections. flash-up.sh starts both, warms Flash and checks them; FLASH_BACKEND=gguf in
-   ~/.config/macllm.env rolls Flash back to the LM Studio GGUF. LM Studio's window shows only Gemma.
+   Gemma 4 26B-A4B QAT (gemma-4-26b-a4b-it-qat) runs in a second mlx-serve at 127.0.0.1:11235
+   (LaunchAgent com.$USER.mlx-serve-gemma, 32K, thinking off unless a request turns it on) since
+   Nov 3. Open WebUI has both connections. flash-up.sh starts both, warms them and checks them;
+   FLASH_BACKEND=gguf in ~/.config/macllm.env rolls Flash back to the LM Studio GGUF, which is the
+   only thing LM Studio is still used for.
 2. M5 Max Flash-Next effort: mlx-serve turns thinking off unless a request sends
    chat_template_kwargs {"enable_thinking": true, "reasoning_effort": "medium"} (low, medium or
    xhigh); thinking-off answers are worse. Auto Router v1.4.1 and every Flash persona send it
-   (Flash-IT-Deep xhigh). [effort:...] markers only matter on the GGUF rollback. Effort barely
+   (Flash-IT-Deep xhigh). Gemma gets no kwargs, so it answers without thinking.
+   [effort:...] markers only matter on the GGUF rollback. Effort barely
    changes reasoning length; max_tokens is the real limit (Auto: Flash 8192, deep 24576, Gemma none).
-3. M5 Max measured performance (Oct 24-25): Flash on mlx-serve 93 tok/s decode, 88 tok/s at 28K,
+3. M5 Max measured performance (Oct 24-25, Gemma Nov 3): Flash on mlx-serve 93 tok/s decode, 88 tok/s at 28K,
    2,500 tok/s prefill, 11 s TTFT at 28K, prefix cache 5.75 s → 0.11 s at 12K; with Gemma busy
-   Flash 57 tok/s and Gemma 49 tok/s. Gemma alone 124 tok/s. Wired ~18 GB idle, ~88-102 GB while
-   Flash works, no swap. The old GGUF did 48 tok/s and 934 tok/s prefill.
+   Flash 63 tok/s and Gemma 79 tok/s. Gemma alone (mlx-serve, Nov 3) 142 tok/s, 4,600 tok/s prefill,
+   60 ms TTFT. Wired ~18 GB idle, ~88-98 GB while Flash works, no swap. The old GGUF did 48 tok/s
+   and 934 tok/s prefill.
 
 The repo-workflow and M5-scope memories from Oct 23 are unchanged.
 
 ## Still open
 
 - Swap watch through Oct 27 (`sysctl vm.swapusage`).
+- After the GGUF is deleted (~Nov 7): uninstall LM Studio, remove its login item, drop the
+  `FLASH_BACKEND=gguf` path from `flash-up.sh`.
+- Gemma drafter (`--drafter`) not tried yet.
 - 10-prompt quality check, GGUF vs mlx-serve, before deleting the GGUF.
 - `max_tokens` on Flash personas used outside Auto.
 - RAID guard retry still misses the TB5 volume after a reboot (20 s).

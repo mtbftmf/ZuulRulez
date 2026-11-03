@@ -7,7 +7,7 @@
   <array>
     <string>/bin/zsh</string>
     <string>-c</string>
-    <string>for i in {1..30}; do ~/.lmstudio/bin/lms ps >/dev/null 2>&amp;1 &amp;&amp; break; sleep 5; done; sleep 30; OWUI_LABEL= ~/bin/flash-up.sh</string>
+    <string>sleep 10; OWUI_LABEL= ~/bin/flash-up.sh</string>
   </array>
   <key>RunAtLoad</key><true/>
   <key>StandardOutPath</key><string>__HOME__/Library/Logs/flash-up.log</string>

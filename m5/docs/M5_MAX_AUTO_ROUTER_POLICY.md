@@ -36,9 +36,10 @@ M-series Studios using a houdini account for friends and family hosting.
 
 ## M5 Max Auto Router defaults
 
-- Fast model: Gemma 4 26B-A4B QAT, LM Studio `localhost:1234` (LMSTUDIO_URL).
+- Fast model: Gemma 4 26B-A4B QAT, mlx-serve `127.0.0.1:11235` (FAST_URL) since v1.5.0; LM Studio
+  `localhost:1234` (LMSTUDIO_URL) before. Thinking off unless FAST_PARAMS turns it on.
 - Strong model: Flash-Next, mlx-serve `127.0.0.1:11234` (STRONG_URL) since v1.4.0; the LM Studio
-  GGUF is the rollback (STRONG_URL empty, EFFORT_MODE marker).
+  GGUF is the rollback (STRONG_URL http://localhost:1234/v1, EFFORT_MODE marker).
 - Default route is Gemma.
 - Flash-Next is for explicit /flash or /strong requests, or clearly complex work.
 - Explicit overrides:
@@ -51,7 +52,7 @@ M-series Studios using a houdini account for friends and family hosting.
 - LENGTH_THRESHOLD should be 1800 or higher for this machine.
 - LONG_CHAT_TURNS should be off by default, or at most 25 with complexity scoring.
 - Small code fences must not force Flash-Next by themselves.
-- Router version: v1.4.1. Do not deploy v1.2 (d01095e): it drops the deep route and caps.
+- Router version: v1.5.0. Do not deploy v1.2 (d01095e): it drops the deep route and caps.
 - Effort (EFFORT_MODE kwargs, default): every Flash request carries
   chat_template_kwargs {enable_thinking: true, reasoning_effort: medium}, xhigh for /deep,
   DEEP_PHRASES or DEEP_SCORE. mlx-serve turns thinking OFF when a request omits it, and
@@ -61,7 +62,7 @@ M-series Studios using a houdini account for friends and family hosting.
 - Token caps when the request has none: STRONG_MAX_TOKENS 8192 (Flash medium),
   DEEP_MAX_TOKENS 24576 (Flash xhigh), FAST_MAX_TOKENS 0 (Gemma, no cap).
   A max_tokens already in the request wins. These caps are the real time limit.
-- Context guard (v1.3.3): FAST_CTX must match Gemma's loaded context (32768). Requests
+- Context guard (v1.3.3): FAST_CTX must match Gemma's --ctx-size (32768). Requests
   estimated over FAST_CTX - FAST_CTX_RESERVE go to Flash (images included, v1.3.4); /gemma requests are trimmed
   (oldest messages first) instead.
 - Exact reimbursement, retirement, tax, DCF, IRR, WACC, drawdown, depreciation,
@@ -72,8 +73,9 @@ M-series Studios using a houdini account for friends and family hosting.
 - Flash-Next is expensive to route on this machine.
 - Wired RAM: ~18 GB idle; with mlx-serve Flash generating, peak ~100 GB (Oct 24, MTP on,
   Gemma idle). The GGUF peaked near 76 GB.
-- Flash-Next loads at 128K and Gemma at 32K; the 4 parallel slots of each share its context.
+- Flash-Next loads at 128K and Gemma at 32K; each mlx-serve takes 2 requests at once (Gemma's take turns).
   A full 128K prompt takes ~2 min to read (867 tok/s at 100K). Repeated long prefixes are cheap (prefix cache: 12.9 s -> 0.05 s TTFT at 11.9K).
-- Monitor with lms ps (Gemma), curl 127.0.0.1:11234/health (Flash), memory_pressure, and sysctl vm.swapusage.
+- Monitor with curl 127.0.0.1:11234/health (Flash) and :11235/health (Gemma), each /metrics.json,
+  memory_pressure, and sysctl vm.swapusage. Peak wired with both busy: 98.3 GB (Nov 3).
 - Use caffeinate only during deliberate long generation sessions.
 - Do not bake aggressive Metal wired-limit values into generic builds.

@@ -1,9 +1,10 @@
 """
 title: Auto Router (Gemma ⇄ Flash-Next)
 author: Pdl_Pwr
-version: 1.4.1
-description: One "Auto" model. Quick requests go to Gemma 4 26B-A4B (LM Studio), clearly complex
-             ones to Qwen3.8-Flash-Next (medium effort; mlx-serve since v1.4.0).
+version: 1.5.0
+description: One "Auto" model. Quick requests go to Gemma 4 26B-A4B, clearly complex ones to
+             Qwen3.8-Flash-Next (medium effort). Both run in mlx-serve (Flash since v1.4.0,
+             Gemma since v1.5.0).
              Prefixes: /flash or /strong, /gemma or /fast, /deep (Flash at xhigh effort),
              /route <text> (shows where <text> would go, without running it).
              v1.3: escalates to Flash at xhigh on its own for explicit "think hard"-style
@@ -12,9 +13,21 @@ description: One "Auto" model. Quick requests go to Gemma 4 26B-A4B (LM Studio),
              v1.3.4: Flash-Next has vision (mmproj); /flash and /deep accept images.
              v1.4.0: Flash on its own server (STRONG_URL); effort sent as chat_template_kwargs.
              v1.4.1: prefixes work on messages with attachments.
+             v1.5.0: Gemma moved from LM Studio to mlx-serve (FAST_URL).
 requirements: httpx
 """
 
+# v1.5.0 changes (Nov 3 2026)
+# - Gemma moved from LM Studio to its own mlx-serve (127.0.0.1:11235). LMSTUDIO_URL is replaced by
+#   FAST_URL (Gemma and the classifier); its default points at the new server, so no valve edit is
+#   needed. STRONG_URL empty now means FAST_URL. For the Flash GGUF rollback set STRONG_URL to
+#   http://localhost:1234/v1 and EFFORT_MODE to marker.
+# - mlx-serve runs Gemma with thinking off unless a request turns it on (LM Studio's Gemma thought
+#   by default). To turn it on for Auto's Gemma route, add
+#   "chat_template_kwargs": {"enable_thinking": true} to FAST_PARAMS.
+# - Error hints name the server's health URL and mlx-serve log for either model, or `lms ps` for a
+#   model served by LM Studio (:1234).
+#
 # v1.4.1 changes (Oct 24 2026)
 # - Open WebUI puts an <attached_files>...</attached_files> block in front of the typed text when a
 #   file or image is attached, so "/flash describe this" with an image never matched the prefix and
@@ -23,7 +36,8 @@ requirements: httpx
 #
 # v1.4.0 changes (Oct 24 2026)
 # - Flash-Next moved to mlx-serve (127.0.0.1:11234); Gemma stays on LM Studio. STRONG_URL is the
-#   Flash server (empty = LMSTUDIO_URL, as before). Gemma and the classifier use LMSTUDIO_URL.
+#   Flash server (empty = LMSTUDIO_URL, as before). Gemma and the classifier use LMSTUDIO_URL
+#   (renamed FAST_URL in v1.5.0).
 # - EFFORT_MODE "kwargs" (default): Flash requests carry
 #   chat_template_kwargs {"enable_thinking": STRONG_THINKING, "reasoning_effort": STRONG_EFFORT or
 #   DEEP_EFFORT}. mlx-serve turns thinking OFF unless a request turns it on, and thinking-off Flash
@@ -105,13 +119,13 @@ DEFAULT_DEEP_PHRASES = ("think hard, think harder, think carefully, think deeply
 
 class Pipe:
     class Valves(BaseModel):
-        LMSTUDIO_URL: str = Field(default="http://localhost:1234/v1", description="LM Studio OpenAI-compatible base URL (Gemma)")
-        STRONG_URL: str = Field(default="http://127.0.0.1:11234/v1", description="Flash-Next server base URL (empty = LMSTUDIO_URL)")
+        FAST_URL: str = Field(default="http://127.0.0.1:11235/v1", description="Gemma server base URL (mlx-serve; also used by the classifier)")
+        STRONG_URL: str = Field(default="http://127.0.0.1:11234/v1", description="Flash-Next server base URL (empty = FAST_URL; GGUF rollback: http://localhost:1234/v1)")
         EFFORT_MODE: str = Field(default="kwargs", description="kwargs: send chat_template_kwargs (mlx-serve); marker: [effort:xhigh] in the system message (LM Studio GGUF)")
         STRONG_THINKING: bool = Field(default=True, description="kwargs mode: enable_thinking for Flash (mlx-serve defaults it off)")
         STRONG_EFFORT: str = Field(default="medium", description="kwargs mode: reasoning_effort for Flash routes (low, medium, xhigh)")
         DEEP_EFFORT: str = Field(default="xhigh", description="kwargs mode: reasoning_effort for /deep, deep phrases and DEEP_SCORE")
-        FAST_MODEL: str = Field(default="gemma-4-26b-a4b-it-qat", description="Quick model ID (as lms ps shows it)")
+        FAST_MODEL: str = Field(default="gemma-4-26b-a4b-it-qat", description="Quick model ID (as /v1/models lists it)")
         STRONG_MODEL: str = Field(default="flash-next", description="Heavy model ID")
         SCORE_THRESHOLD: int = Field(default=3, description="Score at or above this → Flash")
         LENGTH_THRESHOLD: int = Field(default=1800, description="Last message longer than this (chars) adds 2; 3x longer adds 2 more")
@@ -143,7 +157,7 @@ class Pipe:
         STRONG_MAX_TOKENS: int = Field(default=8192, description="max_tokens for Flash at medium effort (0 = no cap)")
         DEEP_MAX_TOKENS: int = Field(default=24576, description="max_tokens for Flash at xhigh: /deep, deep phrases, DEEP_SCORE (0 = no cap)")
         FAST_MAX_TOKENS: int = Field(default=0, description="max_tokens for Gemma (0 = no cap)")
-        FAST_CTX: int = Field(default=32768, description="Gemma's loaded context (CONTEXT in lms ps). Bigger requests go to Flash (0 = no check)")
+        FAST_CTX: int = Field(default=32768, description="Gemma's context (--ctx-size of its mlx-serve). Bigger requests go to Flash (0 = no check)")
         FAST_CTX_RESERVE: int = Field(default=4096, description="Tokens kept free in Gemma's context for its reply")
         CHARS_PER_TOKEN: float = Field(default=3.0, description="Token estimate: characters per token (lower = more cautious)")
         IMAGE_TOKENS: int = Field(default=1100, description="Token estimate per attached image")
@@ -203,7 +217,7 @@ class Pipe:
                   "analysis, code, planning or careful accuracy.\n\nRequest:\n" + text[:2000])
         try:
             async with httpx.AsyncClient(timeout=15) as c:
-                r = await c.post(f"{self.valves.LMSTUDIO_URL.rstrip('/')}/chat/completions",
+                r = await c.post(f"{self.valves.FAST_URL.rstrip('/')}/chat/completions",
                                  json={"model": self.valves.FAST_MODEL, "temperature": 0, "max_tokens": 8,
                                        "messages": [{"role": "user", "content": prompt}]})
                 if r.status_code != 200:
@@ -371,7 +385,7 @@ class Pipe:
     def _base_url(self, use_strong: bool) -> str:
         if use_strong and (self.valves.STRONG_URL or "").strip():
             return self.valves.STRONG_URL.strip().rstrip("/")
-        return self.valves.LMSTUDIO_URL.rstrip("/")
+        return self.valves.FAST_URL.rstrip("/")
 
     def _label(self, use_strong: bool, deep: bool) -> str:
         if not use_strong:
@@ -382,9 +396,12 @@ class Pipe:
 
     def _hint(self, use_strong: bool) -> str:
         url = self._base_url(use_strong)
-        if use_strong and url != self.valves.LMSTUDIO_URL.rstrip("/"):
-            return f"(Is Flash's server up? `curl {url.rsplit('/v1', 1)[0]}/health`; log: ~/.mlx-serve/logs/)"
-        return "(Is it loaded? `lms ps`)"
+        base = url.rsplit("/v1", 1)[0]
+        if base.endswith(":1234"):
+            return "(Is it loaded in LM Studio? `lms ps`)"
+        port = base.rsplit(":", 1)[-1]
+        who = "Flash" if use_strong else "Gemma"
+        return f"(Is {who}'s server up? `curl {base}/health`; log: ~/.mlx-serve/logs/mlx-serve-{port}.log)"
 
     def _cap(self, use_strong: bool, deep: bool, body: dict):
         """max_tokens for this route: request value first, then the route's valve; None = no cap."""
@@ -450,7 +467,7 @@ class Pipe:
 
         return self._stream(url, payload, model, hint)
 
-    async def _stream(self, url, payload, model, hint="(Is it loaded? `lms ps`)") -> AsyncGenerator:
+    async def _stream(self, url, payload, model, hint="") -> AsyncGenerator:
         in_think = False
         finish = None
         try:

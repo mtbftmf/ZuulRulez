@@ -2,7 +2,7 @@
 
 Generic single-model Gemma 4 builds for other Studios live in [`gemma/`](gemma/README.md); everything else in this README is the M5 Max.
 
-Local LLM setup that runs two models side by side behind Open WebUI: Flash-Next in mlx-serve and Gemma 4 in LM Studio, with a scoring router that picks a model (and reasoning effort) per message. Everything runs on the Mac; both model servers are localhost-only.
+Local LLM setup that runs two models side by side behind Open WebUI: Flash-Next and Gemma 4, each in its own mlx-serve, with a scoring router that picks a model (and reasoning effort) per message. Everything runs on the Mac; both model servers are localhost-only.
 
 ![Environment](docs/images/llm-environment.png)
 
@@ -13,26 +13,26 @@ Local LLM setup that runs two models side by side behind Open WebUI: Flash-Next 
 | Hardware | Mac Studio M5 Max (18 CPU / 40 GPU), 128 GB, 1 TB, macOS 27.0.1 |
 | Workhorse | `flash-next` = MLX pack `ddalcu/Qwen3.8-Flash-Next-MLX-Serve-mixed-4-8bit` (4-bit affine, ~65 GB weights + 30 GB n-gram table mmapped), via `~/.mlx-serve/models/flash-next`. Vision and MTP included |
 | Flash server | [mlx-serve](https://github.com/ddalcu/mlx-serve) 26.10.3 (`brew pin`ned) on `127.0.0.1:11234`, LaunchAgent `com.$USER.mlx-serve`: `--ctx-size 131072 --mtp --no-pld --max-concurrent 2 --metrics` |
-| Router / vision / tasks | `gemma-4-26b-a4b-it-qat` (13.4 GB) in LM Studio on `localhost:1234` (32K context, parallel 4, no LAN binding, no CORS, JIT off) |
-| Rollback | `FLASH_BACKEND=gguf` in `~/.config/macllm.env`: `flash-up.sh` stops mlx-serve and loads the AtomicChat `Qwen3.8-Flash-Next-AD-4.27bpw-Q4_K_M-M64` GGUF (88 GB) in LM Studio as `flash-next`. Kept until two weeks after the switch |
+| Router / vision / tasks | `gemma-4-26b-a4b-it-qat` = MLX pack `mlx-community/gemma-4-26B-A4B-it-qat-4bit` (~15 GB) via `~/.mlx-serve/models/gemma-4-26b-a4b-it-qat`, in a second mlx-serve on `127.0.0.1:11235`, LaunchAgent `com.$USER.mlx-serve-gemma`: `--ctx-size 32768 --max-concurrent 2 --metrics`. Thinking off unless a request turns it on. Moved from LM Studio Nov 3 |
+| Rollback | `FLASH_BACKEND=gguf` in `~/.config/macllm.env`: `flash-up.sh` stops Flash's mlx-serve and loads the AtomicChat `Qwen3.8-Flash-Next-AD-4.27bpw-Q4_K_M-M64` GGUF (88 GB) in LM Studio as `flash-next` (Gemma stays in mlx-serve). LM Studio is used for nothing else; both are kept until two weeks after the switch |
 | Front end | Open WebUI 0.12, launchd daemon on `:8080`, data in `~/open-webui-data` |
 | HTTPS | Caddy (`brew services`) with its own local CA: Open WebUI on `:8443`, System Monitor on `:9443`; HTTP ports still open. Setup, per-device CA trust and the two-network name issue: `m5/docs/m5-max-https.md` |
 | GPU wired limit | macOS default (`iogpu.wired_limit_mb` = 0, ~96 GB) |
 
-## Measured (Oct 24-25, 2026: Flash on mlx-serve)
+## Measured (Flash Oct 24-25, Gemma Nov 3, 2026: both on mlx-serve)
 
-| | Flash-Next (mlx-serve + MTP) | Gemma 4 26B (LM Studio) |
+| | Flash-Next (mlx-serve + MTP) | Gemma 4 26B (mlx-serve) |
 | --- | --- | --- |
-| Generation | 93.5 tok/s | 124 tok/s |
-| Prefill (~7.8K tokens) | 2,506 tok/s | 3,534 tok/s |
-| Time to first token | 268 ms | 128 ms |
-| Generation @ 28K context | 88.3 tok/s | 90.7 tok/s |
-| TTFT @ 28K context | 11.3 s | 10 s |
-| Both busy (Gemma image requests + Flash) | 56.8 tok/s, 44.9 @ 28K | 49.1 tok/s |
+| Generation | 93.5 tok/s | 142.4 tok/s |
+| Prefill (~7.8K tokens) | 2,506 tok/s | 4,613 tok/s |
+| Time to first token | 268 ms | 60 ms |
+| Generation @ 28K context | 88.3 tok/s | 108.4 tok/s |
+| TTFT @ 28K context | 11.3 s | 6.9 s |
+| Both busy (Gemma image requests + Flash) | 62.9 tok/s, prefill 2,205 @ 7.8K | 78.5 tok/s |
 | Two Flash requests at once | 51.5 tok/s each, 100.6 total | |
 | Prefix cache, ~12K-token prompt repeated | TTFT 5.75 s → 0.11 s | |
 
-Wired memory: ~18 GB idle; ~88-102 GB while Flash is generating or just after (mlx-serve releases its wiring when idle). Peak 101.7 GB with both models busy, no swap, pressure normal. After a reboot macOS compresses the idle Flash weights; `flash-up.sh` sends a 1-token warm-up so the ~4 s first-request cost is paid at login.
+Wired memory: ~18 GB idle; ~88-102 GB while Flash is generating or just after (mlx-serve releases its wiring when idle). Peak 98.3 GB with both models busy (101.7 GB when Gemma was on LM Studio), no swap, pressure normal. Gemma on LM Studio (Nov 3, thinking on): 125 tok/s, prefill 3,542 tok/s, TTFT 129 ms; both busy 56.8 (Flash) / 49.1 (Gemma) tok/s. After a reboot macOS compresses the idle Flash weights; `flash-up.sh` sends a 1-token warm-up so the ~4 s first-request cost is paid at login.
 
 Test 1 ([Raspberry Pi Wi-Fi troubleshooting prompt](m5/tests/test1-pi-wifi.md)), end to end in Open WebUI: ~7.5 min out of the box → ~4 min after prompt cleanup → **~35 s** at medium effort (GGUF, Oct 11). Bare API prompt, same settings: mlx-serve ~62 s vs GGUF ~105 s for the same answer length.
 
@@ -112,9 +112,9 @@ Suggested `max_tokens` (Open WebUI → persona → Advanced Params):
 
 Persona caps are not set yet. Auto ignores persona settings and uses its own valves (see Auto Router).
 
-## Auto Router (`m5/openwebui/auto_router.py`, v1.4.1)
+## Auto Router (`m5/openwebui/auto_router.py`, v1.5.0)
 
-Paste into Open WebUI → Admin → Functions (`pbcopy < ~/ZuulRulez/m5/openwebui/auto_router.py`, then Cmd-A, Cmd-V, Save; copy nothing else in between). Gemma requests go to `LMSTUDIO_URL`, Flash requests to `STRONG_URL` (mlx-serve). Routing, first match wins:
+Paste into Open WebUI → Admin → Functions (`pbcopy < ~/ZuulRulez/m5/openwebui/auto_router.py`, then Cmd-A, Cmd-V, Save; copy nothing else in between). Gemma requests go to `FAST_URL` (mlx-serve `:11235`; was `LMSTUDIO_URL` before v1.5.0), Flash requests to `STRONG_URL` (mlx-serve `:11234`). GGUF rollback: `STRONG_URL` = `http://localhost:1234/v1`, `EFFORT_MODE` = marker. Routing, first match wins:
 
 1. Prefix: `/flash` `/strong` → Flash (medium); `/deep` → Flash (xhigh); `/gemma` `/fast` → Gemma; `/route` → dry run that reports the route. Prefixes work on messages with attachments (v1.4.1: Open WebUI's leading `<attached_files>` block is skipped).
 2. Image attached → Gemma (faster). Flash-Next has vision too: `/flash` or `/deep` with an image goes to Flash (`STRONG_HAS_VISION`, on by default; MTP is off for image turns).
@@ -122,7 +122,7 @@ Paste into Open WebUI → Admin → Functions (`pbcopy < ~/ZuulRulez/m5/openwebu
 4. Depth phrase or score ≥ 7 → Flash (xhigh); score ≥ 3 → Flash (medium). Scoring: +3 code task, +3 task phrase (troubleshoot, root cause, audit, WACC…), +2 over 1,800 chars, +2 more over 5,400.
 5. Otherwise → Gemma.
 
-Context guard (v1.3.3): Gemma is loaded at 32K, Flash at 128K. A Gemma route whose whole request (system prompt, history, images) is estimated over `FAST_CTX` − `FAST_CTX_RESERVE` (32,768 − 4,096) goes to Flash instead. An image chat that is too big goes to Flash as well (v1.3.4). Only with `/gemma` (or `STRONG_HAS_VISION` off) are the oldest messages dropped until it fits and the status line says so. Estimate: characters ÷ 3 + 1,100 per image. Set `FAST_CTX` to whatever `lms ps` shows for Gemma; 0 turns the guard off.
+Context guard (v1.3.3): Gemma is loaded at 32K, Flash at 128K. A Gemma route whose whole request (system prompt, history, images) is estimated over `FAST_CTX` − `FAST_CTX_RESERVE` (32,768 − 4,096) goes to Flash instead. An image chat that is too big goes to Flash as well (v1.3.4). Only with `/gemma` (or `STRONG_HAS_VISION` off) are the oldest messages dropped until it fits and the status line says so. Estimate: characters ÷ 3 + 1,100 per image. Set `FAST_CTX` to Gemma's `--ctx-size`; 0 turns the guard off.
 
 Effort (v1.4.0): with `EFFORT_MODE` kwargs (default) every Flash request carries `chat_template_kwargs` `{enable_thinking: true, reasoning_effort: medium}`, `xhigh` for deep routes; `EFFORT_MODE` marker restores the GGUF behaviour (template default, `[effort:xhigh]` marker). Thresholds and phrase lists are valves.
 
@@ -130,9 +130,10 @@ Token caps (v1.3.2): Auto builds its own request to the model server, so persona
 
 ## Open WebUI setup
 
-- Connections: OpenAI API `http://localhost:1234/v1` (LM Studio, Gemma) and `http://127.0.0.1:11234/v1` (mlx-serve, `flash-next`), no key, no prefix; Ollama and Direct Connections off. `flash-next` must appear once in the model list.
+- Connections: OpenAI API `http://127.0.0.1:11235/v1` (mlx-serve, Gemma) and `http://127.0.0.1:11234/v1` (mlx-serve, `flash-next`), no key, no prefix; Ollama and Direct Connections off. `flash-next` must appear once in the model list.
 - Flash-* personas carry the custom parameter `chat_template_kwargs` = `{"enable_thinking": true, "reasoning_effort": "medium"}` (`xhigh` on Flash-IT-Deep). Without it mlx-serve answers with thinking off. Copy to new personas with `REF=muse-general PARAM_KEYS=custom_params owui-sync-flash.sh`.
 - Task Model: Gemma (titles, tags, follow-ups never hit Flash).
+- Gemma-* personas run with thinking off (mlx-serve default). To turn it on for one, add the custom parameter `chat_template_kwargs` = `{"enable_thinking": true}`.
 - Personas: Flash-* (Chef, Clarinet-Sax Musician, Finance, General, Guitar Musician, IT, IT-Deep, Scripting) and Gemma-* (same set minus IT-Deep), plus Auto. Built-in tools off on all of them.
 - Dropdown order: Auto first, then A–Z (`owui-sort-models.sh`).
 - Scripts authenticate with a login token; put `OWUI_EMAIL` in `~/.config/macllm.env` (see `env.example`).
@@ -141,12 +142,12 @@ Token caps (v1.3.2): Auto builds its own request to the model server, so persona
 
 | Task | Command |
 | --- | --- |
-| Start / reload both models | `~/bin/flash-up.sh` (Gemma in LM Studio, Flash in mlx-serve, warm-up, checks) |
-| Stop everything | `~/bin/flash-down.sh` (`STOP_MLX=0` keeps mlx-serve) |
-| Is Flash up? | `curl -s http://127.0.0.1:11234/health` |
-| Restart Flash only | `launchctl kickstart -k gui/$UID/com.$USER.mlx-serve` |
-| Flash logs | `~/.mlx-serve/logs/mlx-serve-11234.log`, `~/Library/Logs/mlx-serve.log` |
-| Flash metrics (tok/s, memory, TTFT) | `curl -s http://127.0.0.1:11234/metrics.json` |
+| Start / reload both models | `~/bin/flash-up.sh` (both mlx-serve agents, warm-up, checks) |
+| Stop everything | `~/bin/flash-down.sh` (`STOP_MLX=0` keeps Flash, `STOP_GEMMA=0` keeps Gemma) |
+| Is Flash / Gemma up? | `curl -s http://127.0.0.1:11234/health` / `curl -s http://127.0.0.1:11235/health` |
+| Restart Flash / Gemma only | `launchctl kickstart -k gui/$UID/com.$USER.mlx-serve` / `...mlx-serve-gemma` |
+| Logs | `~/.mlx-serve/logs/mlx-serve-11234.log` (Flash), `mlx-serve-11235.log` (Gemma); launchd output in `~/Library/Logs/mlx-serve.log`, `mlx-serve-gemma.log` |
+| Metrics (tok/s, memory, TTFT) | `curl -s http://127.0.0.1:11234/metrics.json` (Flash), `:11235/metrics.json` (Gemma) |
 | Roll back to the GGUF / return to MLX | `FLASH_BACKEND=gguf ~/bin/flash-up.sh` / `~/bin/flash-up.sh` |
 | Upgrade Open WebUI (with backup and rollback) | `~/bin/owui-upgrade.sh` |
 | Benchmark (finds the server that serves the model) | `python3 ~/bin/llm-bench.py --model flash-next` |
@@ -154,11 +155,11 @@ Token caps (v1.3.2): Auto builds its own request to the model server, so persona
 | Context sweep, labeled for A/B (v2) | `python3 ~/bin/llm-bench.py --model flash-next --sweep 16000,24000,30000 --label fa-on` |
 | 1 vs 2 simultaneous requests (v2) | `python3 ~/bin/llm-bench.py --model flash-next --streams 2` |
 | Saved runs (v2; each run is compared with the last one of the same model and label) | `python3 ~/bin/llm-bench.py --history` |
-| Benchmark under combined load | add `--load-model gemma-4-26b-a4b-it-qat --load-image ~/Pictures/test.png` (each model is sent to its own server) |
+| Benchmark under combined load | add `--load-model gemma-4-26b-a4b-it-qat --load-image ~/Pictures/test.png` (each model is sent to its own server; pass `--url` / `--load-url` when two servers list the same ID) |
 | Probe context, cache and effort | `python3 ~/bin/llm-probe.py --suite all` |
 | Compare probe runs | `python3 ~/bin/llm-probe.py --summary llm-probe-history.csv` |
-| Memory per model | `python3 ~/bin/llm-mem.py` (GGUF models; for Flash on mlx-serve use `memory_mb` in `/metrics.json`) |
-| Watch Gemma requests | `~/.lmstudio/bin/lms log stream` |
+| Memory per model | `memory_mb` in each server's `/metrics.json` (`llm-mem.py` covers GGUF models in LM Studio) |
+| Watch Gemma requests | `tail -f ~/.mlx-serve/logs/mlx-serve-11235.log` |
 | Copy a persona setting to sibling personas | `owui-sync-flash.sh` (report → dry run → `DRY_RUN=0`) |
 | Fix one line in every persona's system prompt | `owui-prompt-lines.py` (report), then `--apply`; rules in `~/.config/owui-prompt-lines.json` (example in `m5/config/`). Your personal system prompt (Persistent User Context) is not a persona: edit it in Settings → General, then reload the page |
 | Re-sort dropdown | `~/bin/owui-sort-models.sh` |
@@ -171,7 +172,7 @@ Token caps (v1.3.2): Auto builds its own request to the model server, so persona
 | Path | Contents |
 | --- | --- |
 | `m5/bin/` | Scripts linked into `~/bin` by `install.sh` |
-| `m5/launchd/` | LaunchAgent templates rendered by `install.sh --launchd`: `com.$USER.flash-up` (login script), `com.$USER.mlx-serve` (Flash server) |
+| `m5/launchd/` | LaunchAgent templates rendered by `install.sh --launchd`: `com.$USER.flash-up` (login script), `com.$USER.mlx-serve` (Flash server), `com.$USER.mlx-serve-gemma` (Gemma server) |
 | `m5/openwebui/` | Open WebUI functions (router, filter) |
 | `m5/scripts/` | Optional helpers sourced by `m5/bin` scripts (`raid-guard.sh`; M5 Max only, off by default) |
 | `m5/config/` | Env templates; copy to `~/.config/` and fill in (never commit the filled-in file) |
@@ -182,7 +183,7 @@ Token caps (v1.3.2): Auto builds its own request to the model server, so persona
 | `docs/images/` | Diagram and efficiency chart |
 | `CHANGELOG.md` | Dated history of changes and measured results |
 
-Install or update on the Mac: `./install.sh` (dry run), then `./install.sh --apply` (add `--launchd` to install or update both LaunchAgents; a changed mlx-serve agent restarts Flash).
+Install or update on the Mac: `./install.sh` (dry run), then `./install.sh --apply` (add `--launchd` to install or update the LaunchAgents; a changed mlx-serve agent restarts its model).
 
 ## Never commit
 
@@ -194,10 +195,10 @@ Model weights, `~/open-webui-data`, Open WebUI exports or backups (they contain 
 
 - zsh: `#` is not a comment in pasted commands, `<placeholder>` text is read as a redirect, and `echo` turns `\n` inside JSON into real newlines; read JSON files with `jq` directly.
 - mlx-serve turns thinking off unless the request sends `chat_template_kwargs` `{"enable_thinking": true}`. New Flash personas need the custom parameter (copy with `owui-sync-flash.sh`).
-- mlx-serve binds to `0.0.0.0` (the whole LAN) by default; the LaunchAgent passes `--host 127.0.0.1`. Check with `lsof -nP -iTCP:11234 -sTCP:LISTEN`.
+- mlx-serve binds to `0.0.0.0` (the whole LAN) by default; both LaunchAgents pass `--host 127.0.0.1`. Check with `lsof -nP -iTCP:11234-11235 -sTCP:LISTEN`.
 - mlx-serve is pinned (`brew pin mlx-serve`). Upgrade on purpose: unpin, upgrade, `llm-bench.py --label mlx-prod` (flags drops over 7%), pin again.
 - GGUF rollback only: a model re-download restores the stock template (xhigh). Leave LM Studio's Chat Template box at default.
-- `lms ps` and LM Studio's window show only Gemma now; Flash lives in mlx-serve. `top`'s "used" includes file cache (the 30 GB n-gram table); wired is ~18 GB idle and ~88-102 GB while Flash is working.
+- LM Studio serves nothing unless `FLASH_BACKEND=gguf`; `flash-up.sh` stops its server if it finds it running. Gemma 4 on mlx-serve can't batch two requests (they take turns), and every image becomes 256 tokens (scaled to 768×768). `top`'s "used" includes file cache (the 30 GB n-gram table); wired is ~18 GB idle and ~88-102 GB while Flash is working.
 - Open WebUI valves: click "Custom" to flip a valve back to Default; saved valve values survive a function code update.
 - launchctl: wait ~5 s after `bootout` before `bootstrap`.
 - Folders: `~/ZuulRulez` stays on MacLLM (`~/bin` links point into it; never `git checkout` there). Monitor work goes in `~/ZuulRulez-monitor` (git worktree).

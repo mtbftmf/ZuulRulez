@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.__USER__.mlx-serve-gemma</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/opt/homebrew/bin/mlx-serve</string>
+    <string>--model</string><string>__HOME__/.mlx-serve/models/gemma-4-26b-a4b-it-qat</string>
+    <string>--host</string><string>127.0.0.1</string>
+    <string>--port</string><string>11235</string>
+    <string>--ctx-size</string><string>32768</string>
+    <string>--max-concurrent</string><string>2</string>
+    <string>--metrics</string>
+  </array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>ThrottleInterval</key><integer>30</integer>
+  <key>ExitTimeOut</key><integer>60</integer>
+  <key>StandardOutPath</key><string>__HOME__/Library/Logs/mlx-serve-gemma.log</string>
+  <key>StandardErrorPath</key><string>__HOME__/Library/Logs/mlx-serve-gemma.log</string>
+</dict>
+</plist>

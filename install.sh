@@ -4,7 +4,7 @@
 #   ./install.sh            dry run
 #   ./install.sh --apply    link scripts into ~/bin (existing files are moved to *.bak-YYYYMMDD)
 #   ./install.sh --apply --launchd   also render and load the LaunchAgents in m5/launchd/
-#                                    (com.$USER.flash-up and com.$USER.mlx-serve)
+#                                    (com.$USER.flash-up, com.$USER.mlx-serve, com.$USER.mlx-serve-gemma)
 set -euo pipefail
 REPO="${0:A:h}"
 APPLY=0; LAUNCHD=0
