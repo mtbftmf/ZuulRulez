@@ -13,7 +13,7 @@ Local LLM setup that runs two models side by side behind Open WebUI: Flash-Next 
 | Hardware | Mac Studio M5 Max (18 CPU / 40 GPU), 128 GB, 1 TB, macOS 27.0.1 |
 | Workhorse | `flash-next` = MLX pack `ddalcu/Qwen3.8-Flash-Next-MLX-Serve-mixed-4-8bit` (4-bit affine, ~65 GB weights + 30 GB n-gram table mmapped), via `~/.mlx-serve/models/flash-next`. Vision and MTP included |
 | Flash server | [mlx-serve](https://github.com/ddalcu/mlx-serve) 26.10.3 (`brew pin`ned) on `127.0.0.1:11234`, LaunchAgent `com.$USER.mlx-serve`: `--ctx-size 131072 --mtp --no-pld --max-concurrent 2 --metrics` |
-| Router / vision / tasks | `gemma-4-26b-a4b-it-qat` = MLX pack `mlx-community/gemma-4-26B-A4B-it-qat-4bit` (~15 GB) via `~/.mlx-serve/models/gemma-4-26b-a4b-it-qat`, in a second mlx-serve on `127.0.0.1:11235`, LaunchAgent `com.$USER.mlx-serve-gemma`: `--ctx-size 32768 --max-concurrent 2 --metrics`. Thinking off unless a request turns it on. Moved from LM Studio Nov 3 |
+| Router / vision / tasks | `gemma-4-26b-a4b-it-qat` = MLX pack `mlx-community/gemma-4-26B-A4B-it-qat-4bit` (~15 GB) via `~/.mlx-serve/models/gemma-4-26b-a4b-it-qat`, in a second mlx-serve on `127.0.0.1:11235`, LaunchAgent `com.$USER.mlx-serve-gemma`: `--ctx-size 32768 --max-concurrent 2 --metrics`. Thinking off unless a request turns it on (Gemma-* personas do). Moved from LM Studio Nov 3 |
 | Rollback | `FLASH_BACKEND=gguf` in `~/.config/macllm.env`: `flash-up.sh` stops Flash's mlx-serve and loads the AtomicChat `Qwen3.8-Flash-Next-AD-4.27bpw-Q4_K_M-M64` GGUF (88 GB) in LM Studio as `flash-next` (Gemma stays in mlx-serve). LM Studio is used for nothing else; both are kept until two weeks after the switch |
 | Front end | Open WebUI 0.12, launchd daemon on `:8080`, data in `~/open-webui-data` |
 | HTTPS | Caddy (`brew services`) with its own local CA: Open WebUI on `:8443`, System Monitor on `:9443`; HTTP ports still open. Setup, per-device CA trust and the two-network name issue: `m5/docs/m5-max-https.md` |
@@ -133,7 +133,7 @@ Token caps (v1.3.2): Auto builds its own request to the model server, so persona
 - Connections: OpenAI API `http://127.0.0.1:11235/v1` (mlx-serve, Gemma) and `http://127.0.0.1:11234/v1` (mlx-serve, `flash-next`), no key, no prefix; Ollama and Direct Connections off. `flash-next` must appear once in the model list.
 - Flash-* personas carry the custom parameter `chat_template_kwargs` = `{"enable_thinking": true, "reasoning_effort": "medium"}` (`xhigh` on Flash-IT-Deep). Without it mlx-serve answers with thinking off. Copy to new personas with `REF=muse-general PARAM_KEYS=custom_params owui-sync-flash.sh`.
 - Task Model: Gemma (titles, tags, follow-ups never hit Flash).
-- Gemma-* personas run with thinking off (mlx-serve default). To turn it on for one, add the custom parameter `chat_template_kwargs` = `{"enable_thinking": true}`.
+- Gemma-* personas carry the same `chat_template_kwargs` custom parameter as the Flash ones, so they think before answering (copied with `REF=muse-general BASE=gemma-4-26b-a4b-it-qat PARAM_KEYS=custom_params owui-sync-flash.sh`). Auto's Gemma route, titles and tags call the base model and stay thinking-off (fast). New Gemma personas need the parameter too.
 - Personas: Flash-* (Chef, Clarinet-Sax Musician, Finance, General, Guitar Musician, IT, IT-Deep, Scripting) and Gemma-* (same set minus IT-Deep), plus Auto. Built-in tools off on all of them.
 - Dropdown order: Auto first, then A–Z (`owui-sort-models.sh`).
 - Scripts authenticate with a login token; put `OWUI_EMAIL` in `~/.config/macllm.env` (see `env.example`).

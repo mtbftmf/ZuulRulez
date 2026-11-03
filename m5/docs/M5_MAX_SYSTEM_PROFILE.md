@@ -46,7 +46,7 @@ plans against a 110 GB wired budget internally; `iogpu.wired_limit_mb` stays 0 (
 | Files | Hugging Face cache snapshot, linked as `~/.mlx-serve/models/gemma-4-26b-a4b-it-qat`; weights ~14.5 GB, vision encoder included (27 layers; every image scaled to 768×768 = 256 tokens) |
 | Server | Second mlx-serve on `127.0.0.1:11235`, LaunchAgent `com.$USER.mlx-serve-gemma` (template `m5/launchd/mlx-serve-gemma.plist.template`): `--ctx-size 32768 --max-concurrent 2 --metrics`; PLD left at its default (on, but it switches itself off when drafts aren't accepted, which was every bench request) |
 | Logs | `~/.mlx-serve/logs/mlx-serve-11235.log`, `~/Library/Logs/mlx-serve-gemma.log` |
-| Thinking | Off unless a request sends `chat_template_kwargs` `{"enable_thinking": true}` (LM Studio's Gemma thought by default: 509 of 512 bench tokens were reasoning). Auto: add it to `FAST_PARAMS`; a persona: custom parameter |
+| Thinking | Off unless a request sends `chat_template_kwargs` `{"enable_thinking": true}` (LM Studio's Gemma thought by default: 509 of 512 bench tokens were reasoning). Every Gemma-* persona sends it (custom parameter copied from Flash-General, Nov 3); Auto's Gemma route, titles and tags don't (add it to `FAST_PARAMS` to change Auto). Thinking-off persona answers had factual slips (I-bonds "Roth options", a "$5,000/spouse" limit, a self-contradictory pickup tip); with thinking on the same I-bonds question came back better |
 | Concurrency | Gemma 4 has no batched decode in mlx-serve: two requests interleave (take turns) |
 | Prompt cache | Hot prefix cache capped at 2 GB (a 28K prompt keeps ~9.5K tokens) |
 | LM Studio | Used only for the Flash GGUF rollback. `flash-up.sh` stops its server in mlx mode. Uninstall with the GGUF |
@@ -143,7 +143,8 @@ Replace the older Flash-Next memories (engine, effort, measured performance) wit
 2. M5 Max Flash-Next effort: mlx-serve turns thinking off unless a request sends
    chat_template_kwargs {"enable_thinking": true, "reasoning_effort": "medium"} (low, medium or
    xhigh); thinking-off answers are worse. Auto Router v1.4.1 and every Flash persona send it
-   (Flash-IT-Deep xhigh). Gemma gets no kwargs, so it answers without thinking.
+   (Flash-IT-Deep xhigh). Gemma-* personas send enable_thinking true too; Auto's Gemma route,
+   titles and tags don't, so they stay fast.
    [effort:...] markers only matter on the GGUF rollback. Effort barely
    changes reasoning length; max_tokens is the real limit (Auto: Flash 8192, deep 24576, Gemma none).
 3. M5 Max measured performance (Oct 24-25, Gemma Nov 3): Flash on mlx-serve 93 tok/s decode, 88 tok/s at 28K,
