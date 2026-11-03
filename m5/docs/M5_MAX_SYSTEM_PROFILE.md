@@ -130,7 +130,8 @@ Histograms have `count`, `sum`, `bounds`, `bucket_counts`.
 ## Open WebUI memory text
 
 Source text for the Open WebUI memories about this host (Settings → Personalization → Memory).
-Replace the older Flash-Next memories (engine, effort, measured performance) with these.
+`owui-memories.py` reads this section: each numbered item is one memory, keyed by the text before
+its first colon (parts in parentheses ignored); `--apply` replaces the memory with the same key or adds it. Keep the keys stable.
 
 1. M5 Max Flash-Next engine: Flash-Next (`flash-next`) runs on mlx-serve 26.10.3 (MLX pack
    ddalcu/Qwen3.8-Flash-Next-MLX-Serve-mixed-4-8bit) at 127.0.0.1:11234, LaunchAgent
@@ -142,7 +143,7 @@ Replace the older Flash-Next memories (engine, effort, measured performance) wit
    only thing LM Studio is still used for.
 2. M5 Max Flash-Next effort: mlx-serve turns thinking off unless a request sends
    chat_template_kwargs {"enable_thinking": true, "reasoning_effort": "medium"} (low, medium or
-   xhigh); thinking-off answers are worse. Auto Router v1.4.1 and every Flash persona send it
+   xhigh); thinking-off answers are worse. Auto Router v1.5.0 and every Flash persona send it
    (Flash-IT-Deep xhigh). Gemma-* personas send enable_thinking true too; Auto's Gemma route,
    titles and tags don't, so they stay fast.
    [effort:...] markers only matter on the GGUF rollback. Effort barely

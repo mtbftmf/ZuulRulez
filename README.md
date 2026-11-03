@@ -162,6 +162,7 @@ Token caps (v1.3.2): Auto builds its own request to the model server, so persona
 | Watch Gemma requests | `tail -f ~/.mlx-serve/logs/mlx-serve-11235.log` |
 | Copy a persona setting to sibling personas | `owui-sync-flash.sh` (report → dry run → `DRY_RUN=0`) |
 | Fix one line in every persona's system prompt | `owui-prompt-lines.py` (report), then `--apply`; rules in `~/.config/owui-prompt-lines.json` (example in `m5/config/`). Your personal system prompt (Persistent User Context) is not a persona: edit it in Settings → General, then reload the page |
+| Sync Open WebUI memories with the system profile | `owui-memories.py` (report), then `--apply`; `--list`, `--delete ID`. Source: "Open WebUI memory text" in `m5/docs/M5_MAX_SYSTEM_PROFILE.md` |
 | Re-sort dropdown | `~/bin/owui-sort-models.sh` |
 | See where Auto would send a message | `/route <message>` in a throwaway Auto chat |
 | Restart HTTPS front end after editing `/opt/homebrew/etc/Caddyfile` | `brew services restart caddy` |
