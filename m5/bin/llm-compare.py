@@ -10,6 +10,7 @@ judged blind. Python 3 stdlib only.
   ~/bin/llm-compare.py run --label mlx  --url http://127.0.0.1:11234/v1
   ~/bin/llm-compare.py run --label gguf --url http://localhost:1234/v1
   ~/bin/llm-compare.py report mlx gguf          # writes ~/llm-compare/mlx-vs-gguf.html; open it
+  ~/bin/llm-compare.py run --label nomtp --url http://127.0.0.1:11234/v1 --only 2,3,7 --extra '{"enable_mtp": false}'
 
 Prompts: m5/tests/quality-prompts.md (each "### " heading starts a prompt; "> Check:" lines are
 judging notes, not sent). Settings match Auto's Flash route: thinking on, medium effort,
@@ -53,6 +54,12 @@ def load_prompts(path):
 
 def cmd_run(a):
     prompts = load_prompts(a.prompts)
+    try:
+        extra = json.loads(a.extra) if a.extra else {}
+    except json.JSONDecodeError as e:
+        sys.exit(f"--extra is not valid JSON: {e}")
+    if not isinstance(extra, dict):
+        sys.exit("--extra must be a JSON object, e.g. '{\"enable_mtp\": false}'")
     if a.only:
         keep = {int(x) for x in a.only.split(",")}
         prompts = [p for i, p in enumerate(prompts, 1) if i in keep]
@@ -64,7 +71,7 @@ def cmd_run(a):
     for i, p in enumerate(prompts, 1):
         body = {"model": a.model, "max_tokens": a.max_tokens, "temperature": 1.0, "top_p": 0.95, "top_k": 20,
                 "chat_template_kwargs": {"enable_thinking": True, "reasoning_effort": a.effort},
-                "messages": [{"role": "user", "content": p["prompt"]}]}
+                "messages": [{"role": "user", "content": p["prompt"]}], **extra}
         req = urllib.request.Request(url, data=json.dumps(body).encode(), headers={"Content-Type": "application/json"})
         t0 = time.time()
         try:
@@ -93,7 +100,8 @@ def cmd_run(a):
               f"answer {len(rec['answer']):6,} chars  {rec['finish']}")
         with open(out_path, "w") as f:      # save after each prompt so an interrupted run keeps its answers
             json.dump({"label": a.label, "url": a.url, "model": a.model, "effort": a.effort,
-                       "max_tokens": a.max_tokens, "date": time.strftime("%Y-%m-%d %H:%M"), "results": results}, f, indent=1)
+                       "max_tokens": a.max_tokens, "extra": extra, "date": time.strftime("%Y-%m-%d %H:%M"),
+                       "results": results}, f, indent=1)
     capped = sum(1 for r in results if r["finish"] == "length")
     print(f"Saved {out_path}" + (f"  ({capped} answer(s) hit the {a.max_tokens}-token cap)" if capped else ""))
 
@@ -219,6 +227,7 @@ def main():
     r.add_argument("--max-tokens", type=int, default=8192)
     r.add_argument("--timeout", type=int, default=900, help="seconds per prompt")
     r.add_argument("--only", default="", help="comma-separated prompt numbers, e.g. 1,3")
+    r.add_argument("--extra", default="", help='JSON merged into each request, e.g. \'{"enable_mtp": false}\'')
     r.set_defaults(func=cmd_run)
     p = sub.add_parser("report", help="blind side-by-side page from two saved runs")
     p.add_argument("a"); p.add_argument("b")

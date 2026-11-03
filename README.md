@@ -158,6 +158,7 @@ Token caps (v1.3.2): Auto builds its own request to the model server, so persona
 | Benchmark under combined load | add `--load-model gemma-4-26b-a4b-it-qat --load-image ~/Pictures/test.png` (each model is sent to its own server; pass `--url` / `--load-url` when two servers list the same ID) |
 | Blind answer-quality comparison of two setups | `llm-compare.py run --label A --url …` per setup, then `llm-compare.py report A B` and open the page (prompts in `m5/tests/quality-prompts.md`; results stay in `~/llm-compare`) |
 | Probe context, cache and effort | `python3 ~/bin/llm-probe.py --suite all` |
+| Free space left by a deleted Hugging Face model | `hf-cache-orphans.py` (report), then `--delete` |
 | Compare probe runs | `python3 ~/bin/llm-probe.py --summary llm-probe-history.csv` |
 | Memory per model | `memory_mb` in each server's `/metrics.json` (`llm-mem.py` covers GGUF models in LM Studio) |
 | Watch Gemma requests | `tail -f ~/.mlx-serve/logs/mlx-serve-11235.log` |
@@ -199,6 +200,7 @@ Model weights, `~/open-webui-data`, Open WebUI exports or backups (they contain 
 - zsh: `#` is not a comment in pasted commands, `<placeholder>` text is read as a redirect, and `echo` turns `\n` inside JSON into real newlines; read JSON files with `jq` directly.
 - mlx-serve turns thinking off unless the request sends `chat_template_kwargs` `{"enable_thinking": true}`. New Flash personas need the custom parameter (copy with `owui-sync-flash.sh`).
 - mlx-serve binds to `0.0.0.0` (the whole LAN) by default; both LaunchAgents pass `--host 127.0.0.1`. Check with `lsof -nP -iTCP:11234-11235 -sTCP:LISTEN`.
+- Hugging Face cache: model files live in the shared `~/.cache/huggingface/hub/blobs/`, and each `models--*` folder only links into it. Deleting a model's folder frees nothing; run `hf-cache-orphans.py` afterwards (Nov 3: 73.7 GB left behind by the iQ pack).
 - mlx-serve is pinned (`brew pin mlx-serve`). Upgrade on purpose: unpin, upgrade, `llm-bench.py --label mlx-prod` (flags drops over 7%), pin again.
 - GGUF rollback only: a model re-download restores the stock template (xhigh). Leave LM Studio's Chat Template box at default.
 - LM Studio serves nothing unless `FLASH_BACKEND=gguf`; `flash-up.sh` stops its server if it finds it running. Gemma 4 on mlx-serve can't batch two requests (they take turns), and every image becomes 256 tokens (scaled to 768×768). `top`'s "used" includes file cache (the 30 GB n-gram table); wired is ~18 GB idle and ~88-102 GB while Flash is working.
