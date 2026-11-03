@@ -6,7 +6,8 @@ use any of this: no Flash-Next, no mlx-serve, no 128 GB memory budget.
 
 Current as of 2026-11-03. Dated history is in `CHANGELOG.md`; the switch from the
 LM Studio GGUF to mlx-serve is planned and tracked in `M5_MAX_MLX_SWITCH_PLAN.md`.
-Gemma moved from LM Studio to a second mlx-serve on Nov 3 (see Gemma below).
+Gemma moved from LM Studio to a second mlx-serve on Nov 3 (see Gemma below); the GGUF and
+LM Studio were removed the same day after the blind quality check.
 
 ## Model and engine
 
@@ -20,7 +21,7 @@ Gemma moved from LM Studio to a second mlx-serve on Nov 3 (see Gemma below).
 | Process | LaunchAgent `com.$USER.mlx-serve` (KeepAlive, ThrottleInterval 30), template `m5/launchd/mlx-serve.plist.template` |
 | Logs | `~/.mlx-serve/logs/mlx-serve-11234.log` (rotates at 32 MB), `~/Library/Logs/mlx-serve.log` |
 | Storage | Internal drive. Never on the external RAID0 (the 30 GB n-gram table is memory-mapped; the stripe has no redundancy) |
-| Rollback | AtomicChat `Qwen3.8-Flash-Next-AD-4.27bpw-Q4_K_M-M64` GGUF (88 GB) in LM Studio, `FLASH_BACKEND=gguf` in `~/.config/macllm.env`. Kept until two weeks after the switch |
+| Rollback | None. The AtomicChat GGUF and LM Studio were removed Nov 3 after the 10-prompt check found no consistent quality gap (GGUF better on 3 of 10 in round 1, best on 0 of those 3 when rerun; differences were sampling noise). Recovery: mlx-serve stays pinned; the pack re-downloads with `hf download` |
 
 ## Server flags (`mlx-serve.plist.template`)
 
@@ -49,7 +50,7 @@ plans against a 110 GB wired budget internally; `iogpu.wired_limit_mb` stays 0 (
 | Thinking | Off unless a request sends `chat_template_kwargs` `{"enable_thinking": true}` (LM Studio's Gemma thought by default: 509 of 512 bench tokens were reasoning). Every Gemma-* persona sends it (custom parameter copied from Flash-General, Nov 3); Auto's Gemma route, titles and tags don't (add it to `FAST_PARAMS` to change Auto). Thinking-off persona answers had factual slips (I-bonds "Roth options", a "$5,000/spouse" limit, a self-contradictory pickup tip); with thinking on the same I-bonds question came back better |
 | Concurrency | Gemma 4 has no batched decode in mlx-serve: two requests interleave (take turns) |
 | Prompt cache | Hot prefix cache capped at 2 GB (a 28K prompt keeps ~9.5K tokens) |
-| LM Studio | Used only for the Flash GGUF rollback. `flash-up.sh` stops its server in mlx mode. Uninstall with the GGUF |
+| LM Studio | Uninstalled Nov 3 |
 
 Measured Nov 3 (`llm-bench.py --mem`, LM Studio's Gemma unloaded; pressure normal, no swap):
 
@@ -138,15 +139,13 @@ its first colon (parts in parentheses ignored); `--apply` replaces the memory wi
    com.$USER.mlx-serve, 128K context, MTP on, 2 concurrent requests, metrics at /metrics.json.
    Gemma 4 26B-A4B QAT (gemma-4-26b-a4b-it-qat) runs in a second mlx-serve at 127.0.0.1:11235
    (LaunchAgent com.$USER.mlx-serve-gemma, 32K, thinking off unless a request turns it on) since
-   Nov 3. Open WebUI has both connections. flash-up.sh starts both, warms them and checks them;
-   FLASH_BACKEND=gguf in ~/.config/macllm.env rolls Flash back to the LM Studio GGUF, which is the
-   only thing LM Studio is still used for.
+   Nov 3. Open WebUI has both connections. flash-up.sh starts both, warms them and checks them.
+   LM Studio and the Flash GGUF were removed Nov 3; there is no other engine on this Mac.
 2. M5 Max Flash-Next effort: mlx-serve turns thinking off unless a request sends
    chat_template_kwargs {"enable_thinking": true, "reasoning_effort": "medium"} (low, medium or
    xhigh); thinking-off answers are worse. Auto Router v1.5.0 and every Flash persona send it
    (Flash-IT-Deep xhigh). Gemma-* personas send enable_thinking true too; Auto's Gemma route,
-   titles and tags don't, so they stay fast.
-   [effort:...] markers only matter on the GGUF rollback. Effort barely
+   titles and tags don't, so they stay fast. Effort barely
    changes reasoning length; max_tokens is the real limit (Auto: Flash 8192, deep 24576, Gemma none).
 3. M5 Max measured performance (Oct 24-25, Gemma Nov 3): Flash on mlx-serve 93 tok/s decode, 88 tok/s at 28K,
    2,500 tok/s prefill, 11 s TTFT at 28K, prefix cache 5.75 s → 0.11 s at 12K; with Gemma busy
@@ -159,9 +158,6 @@ The repo-workflow and M5-scope memories from Oct 23 are unchanged.
 ## Still open
 
 - Swap watch through Oct 27 (`sysctl vm.swapusage`).
-- After the GGUF is deleted (~Nov 7): uninstall LM Studio, remove its login item, drop the
-  `FLASH_BACKEND=gguf` path from `flash-up.sh`.
 - Gemma drafter (`--drafter`) not tried yet.
-- 10-prompt quality check, GGUF vs mlx-serve, before deleting the GGUF.
 - `max_tokens` on Flash personas used outside Auto.
-- RAID guard retry still misses the TB5 volume after a reboot (20 s).
+- External RAID0: unused by the stack since the RAID guard (an LM Studio model folder) was removed Nov 3.

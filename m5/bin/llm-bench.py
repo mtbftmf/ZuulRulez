@@ -55,14 +55,14 @@ import argparse, base64, json, mimetypes, os, platform, re, statistics, subproce
 from datetime import datetime
 import urllib.request, urllib.error
 
-# Servers on this Mac, tried in order when --url is not given: mlx-serve (Flash-Next since Oct 24)
-# and LM Studio (Gemma; Flash-Next GGUF in the rollback case). Override with LLM_SERVERS.
+# Servers on this Mac, tried in order when --url is not given: Flash-Next's mlx-serve and Gemma's
+# mlx-serve. Override with LLM_SERVERS.
 SERVERS = [u.strip() for u in os.environ.get(
-    "LLM_SERVERS", "http://127.0.0.1:11234/v1,http://localhost:1234/v1").split(",") if u.strip()]
+    "LLM_SERVERS", "http://127.0.0.1:11234/v1,http://127.0.0.1:11235/v1").split(",") if u.strip()]
 
 
 def find_server(model):
-    """First server in SERVERS whose /models lists `model`; LM Studio if none answers with it."""
+    """First server in SERVERS whose /models lists `model`; the last one if none answers with it."""
     for url in SERVERS:
         try:
             with urllib.request.urlopen(url.rstrip("/") + "/models", timeout=3) as r:
@@ -70,7 +70,7 @@ def find_server(model):
                     return url
         except Exception:
             continue
-    return SERVERS[-1] if SERVERS else "http://localhost:1234/v1"
+    return SERVERS[-1] if SERVERS else "http://127.0.0.1:11235/v1"
 
 GEN_PROMPT = ("Write a detailed, technical explanation of how a CPU cache hierarchy works "
               "(L1, L2, L3, cache lines, associativity, write-back vs write-through, coherence). "

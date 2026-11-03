@@ -14,7 +14,7 @@ Local LLM setup that runs two models side by side behind Open WebUI: Flash-Next 
 | Workhorse | `flash-next` = MLX pack `ddalcu/Qwen3.8-Flash-Next-MLX-Serve-mixed-4-8bit` (4-bit affine, ~65 GB weights + 30 GB n-gram table mmapped), via `~/.mlx-serve/models/flash-next`. Vision and MTP included |
 | Flash server | [mlx-serve](https://github.com/ddalcu/mlx-serve) 26.10.3 (`brew pin`ned) on `127.0.0.1:11234`, LaunchAgent `com.$USER.mlx-serve`: `--ctx-size 131072 --mtp --no-pld --max-concurrent 2 --metrics` |
 | Router / vision / tasks | `gemma-4-26b-a4b-it-qat` = MLX pack `mlx-community/gemma-4-26B-A4B-it-qat-4bit` (~15 GB) via `~/.mlx-serve/models/gemma-4-26b-a4b-it-qat`, in a second mlx-serve on `127.0.0.1:11235`, LaunchAgent `com.$USER.mlx-serve-gemma`: `--ctx-size 32768 --max-concurrent 2 --metrics`. Thinking off unless a request turns it on (Gemma-* personas do). Moved from LM Studio Nov 3 |
-| Rollback | `FLASH_BACKEND=gguf` in `~/.config/macllm.env`: `flash-up.sh` stops Flash's mlx-serve and loads the AtomicChat `Qwen3.8-Flash-Next-AD-4.27bpw-Q4_K_M-M64` GGUF (88 GB) in LM Studio as `flash-next` (Gemma stays in mlx-serve). LM Studio is used for nothing else; both are kept until two weeks after the switch |
+| Rollback | None since Nov 3: the AtomicChat `Qwen3.8-Flash-Next-AD-4.27bpw-Q4_K_M-M64` GGUF (88 GB) and LM Studio were removed after the blind quality check (`llm-compare.py`). Recovery from a broken mlx-serve or pack: the pin keeps mlx-serve at 26.10.3, and the packs re-download with `hf download` into the Hugging Face cache |
 | Front end | Open WebUI 0.12, launchd daemon on `:8080`, data in `~/open-webui-data` |
 | HTTPS | Caddy (`brew services`) with its own local CA: Open WebUI on `:8443`, System Monitor on `:9443`; HTTP ports still open. Setup, per-device CA trust and the two-network name issue: `m5/docs/m5-max-https.md` |
 | GPU wired limit | macOS default (`iogpu.wired_limit_mb` = 0, ~96 GB) |
@@ -38,7 +38,7 @@ Test 1 ([Raspberry Pi Wi-Fi troubleshooting prompt](m5/tests/test1-pi-wifi.md)),
 
 ![Efficiency](docs/images/flash-next-tuning.png)
 
-### GGUF era (Oct 15-16, LM Studio; now the rollback)
+### GGUF era (Oct 15-16, LM Studio; removed Nov 3)
 
 | | Flash-Next GGUF | Gemma 4 26B |
 | --- | --- | --- |
@@ -84,22 +84,11 @@ On mlx-serve, thinking and effort are request fields: `chat_template_kwargs: {"e
 
 Ways to get xhigh: the Flash-IT-Deep persona; `/deep` in Auto; or automatically in Auto (depth phrases such as "think carefully" / "deep dive", or a routing score of 7+).
 
-### GGUF rollback only
+### GGUF era (history, removed Nov 3)
 
 Flash-Next's stock chat template forces `xhigh` reasoning, LM Studio ignores `reasoning_effort` in requests, and its Chat Template box blocks paste. The template inside GGUF shard 1 was rewritten instead (`m5/bin/gguf-set-template.py`): default `medium`; `[effort:xhigh]` or `[effort:low]` in the first system message overrides it. Auto Router in `EFFORT_MODE` marker sends `[effort:xhigh]` for deep routes.
 
-Reapply after a model re-download (templates: `m5/templates/`):
-
-```bash
-cd ~/.lmstudio/models/AtomicChat/Qwen3.8-Flash-Next-AD-4.27bpw-Q4_K_M-M64
-~/.lmstudio/bin/lms unload flash-next
-python3 ~/bin/gguf-set-template.py Qwen3.8-Flash-Next-AD-4.27bpw-Q4_K_M-M64-00001-of-00033.gguf ~/flash-next-template-medium.jinja ~/shard1-new.gguf
-python3 ~/bin/gguf-template.py ~/shard1-new.gguf | grep -c effort_ns
-mv ~/shard1-new.gguf Qwen3.8-Flash-Next-AD-4.27bpw-Q4_K_M-M64-00001-of-00033.gguf
-~/bin/flash-up.sh
-```
-
-Verify with `~/.lmstudio/bin/lms log stream`: a plain request shows no "Reasoning effort is set" line; an `[effort:xhigh]` request does.
+The template tools (`gguf-set-template.py`, `gguf-template.py`) and templates (`m5/templates/`) were removed with the GGUF; they are in git history before Nov 3.
 
 Or check token counts: `llm-probe.py --suite effort` shows the prompt growing by the injected instruction (low +33, xhigh +45 tokens over default). Effort is a tendency, not a budget: set `max_tokens` on personas that must stay fast.
 
@@ -114,7 +103,7 @@ Persona caps are not set yet. Auto ignores persona settings and uses its own val
 
 ## Auto Router (`m5/openwebui/auto_router.py`, v1.5.0)
 
-Paste into Open WebUI → Admin → Functions (`pbcopy < ~/ZuulRulez/m5/openwebui/auto_router.py`, then Cmd-A, Cmd-V, Save; copy nothing else in between). Gemma requests go to `FAST_URL` (mlx-serve `:11235`; was `LMSTUDIO_URL` before v1.5.0), Flash requests to `STRONG_URL` (mlx-serve `:11234`). GGUF rollback: `STRONG_URL` = `http://localhost:1234/v1`, `EFFORT_MODE` = marker. Routing, first match wins:
+Paste into Open WebUI → Admin → Functions (`pbcopy < ~/ZuulRulez/m5/openwebui/auto_router.py`, then Cmd-A, Cmd-V, Save; copy nothing else in between). Gemma requests go to `FAST_URL` (mlx-serve `:11235`; was `LMSTUDIO_URL` before v1.5.0), Flash requests to `STRONG_URL` (mlx-serve `:11234`). Routing, first match wins:
 
 1. Prefix: `/flash` `/strong` → Flash (medium); `/deep` → Flash (xhigh); `/gemma` `/fast` → Gemma; `/route` → dry run that reports the route. Prefixes work on messages with attachments (v1.4.1: Open WebUI's leading `<attached_files>` block is skipped).
 2. Image attached → Gemma (faster). Flash-Next has vision too: `/flash` or `/deep` with an image goes to Flash (`STRONG_HAS_VISION`, on by default; MTP is off for image turns).
@@ -124,7 +113,7 @@ Paste into Open WebUI → Admin → Functions (`pbcopy < ~/ZuulRulez/m5/openwebu
 
 Context guard (v1.3.3): Gemma is loaded at 32K, Flash at 128K. A Gemma route whose whole request (system prompt, history, images) is estimated over `FAST_CTX` − `FAST_CTX_RESERVE` (32,768 − 4,096) goes to Flash instead. An image chat that is too big goes to Flash as well (v1.3.4). Only with `/gemma` (or `STRONG_HAS_VISION` off) are the oldest messages dropped until it fits and the status line says so. Estimate: characters ÷ 3 + 1,100 per image. Set `FAST_CTX` to Gemma's `--ctx-size`; 0 turns the guard off.
 
-Effort (v1.4.0): with `EFFORT_MODE` kwargs (default) every Flash request carries `chat_template_kwargs` `{enable_thinking: true, reasoning_effort: medium}`, `xhigh` for deep routes; `EFFORT_MODE` marker restores the GGUF behaviour (template default, `[effort:xhigh]` marker). Thresholds and phrase lists are valves.
+Effort (v1.4.0): with `EFFORT_MODE` kwargs (default) every Flash request carries `chat_template_kwargs` `{enable_thinking: true, reasoning_effort: medium}`, `xhigh` for deep routes; `EFFORT_MODE` marker was for the GGUF (template default, `[effort:xhigh]` marker) and is unused since Nov 3. Thresholds and phrase lists are valves.
 
 Token caps (v1.3.2): Auto builds its own request to the model server, so persona `max_tokens` settings never reach it. Valves set the cap per route: `STRONG_MAX_TOKENS` 8192 (Flash, medium), `DEEP_MAX_TOKENS` 24576 (Flash, xhigh), `FAST_MAX_TOKENS` 0 (Gemma, no cap). A `max_tokens` already in the request wins. `/route` and the status line show the cap; a reply cut off by it ends with a note.
 
@@ -148,7 +137,6 @@ Token caps (v1.3.2): Auto builds its own request to the model server, so persona
 | Restart Flash / Gemma only | `launchctl kickstart -k gui/$UID/com.$USER.mlx-serve` / `...mlx-serve-gemma` |
 | Logs | `~/.mlx-serve/logs/mlx-serve-11234.log` (Flash), `mlx-serve-11235.log` (Gemma); launchd output in `~/Library/Logs/mlx-serve.log`, `mlx-serve-gemma.log` |
 | Metrics (tok/s, memory, TTFT) | `curl -s http://127.0.0.1:11234/metrics.json` (Flash), `:11235/metrics.json` (Gemma) |
-| Roll back to the GGUF / return to MLX | `FLASH_BACKEND=gguf ~/bin/flash-up.sh` / `~/bin/flash-up.sh` |
 | Upgrade Open WebUI (with backup and rollback) | `~/bin/owui-upgrade.sh` |
 | Benchmark (finds the server that serves the model) | `python3 ~/bin/llm-bench.py --model flash-next` |
 | Benchmark at depth, with memory | `python3 ~/bin/llm-bench.py --model flash-next --long-ctx 28000 --mem` |
@@ -160,7 +148,7 @@ Token caps (v1.3.2): Auto builds its own request to the model server, so persona
 | Probe context, cache and effort | `python3 ~/bin/llm-probe.py --suite all` |
 | Free space left by a deleted Hugging Face model | `hf-cache-orphans.py` (report), then `--delete` |
 | Compare probe runs | `python3 ~/bin/llm-probe.py --summary llm-probe-history.csv` |
-| Memory per model | `memory_mb` in each server's `/metrics.json` (`llm-mem.py` covers GGUF models in LM Studio) |
+| Memory per model | `memory_mb` in each server's `/metrics.json` |
 | Watch Gemma requests | `tail -f ~/.mlx-serve/logs/mlx-serve-11235.log` |
 | Copy a persona setting to sibling personas | `owui-sync-flash.sh` (report → dry run → `DRY_RUN=0`) |
 | Fix one line in every persona's system prompt | `owui-prompt-lines.py` (report), then `--apply`; rules in `~/.config/owui-prompt-lines.json` (example in `m5/config/`) |
@@ -178,10 +166,8 @@ Token caps (v1.3.2): Auto builds its own request to the model server, so persona
 | `m5/bin/` | Scripts linked into `~/bin` by `install.sh` |
 | `m5/launchd/` | LaunchAgent templates rendered by `install.sh --launchd`: `com.$USER.flash-up` (login script), `com.$USER.mlx-serve` (Flash server), `com.$USER.mlx-serve-gemma` (Gemma server) |
 | `m5/openwebui/` | Open WebUI functions (router, filter) |
-| `m5/scripts/` | Optional helpers sourced by `m5/bin` scripts (`raid-guard.sh`; M5 Max only, off by default) |
 | `m5/config/` | Env templates; copy to `~/.config/` and fill in (never commit the filled-in file) |
-| `m5/docs/` | Host-specific notes, M5 Max only: system profile, Auto Router policy, mlx-serve switch plan, local HTTPS, external RAID0 tiering |
-| `m5/templates/` | Stock and edited Flash-Next chat templates (GGUF rollback) |
+| `m5/docs/` | Host-specific notes, M5 Max only: system profile, Auto Router policy, mlx-serve switch plan, local HTTPS |
 | `m5/tests/` | Fixed prompts for end-to-end comparisons (Test 1) and the 10-prompt quality set for `llm-compare.py` |
 | `gemma/` | Generic Gemma 4 builds for other M-series Studios (houdini account, friends-and-family hosting): installer, up/down scripts, rebuild scripts (preflight, Golden Gate upgrade, bootstrap, verify), runbook, Open WebUI memory text. See `gemma/README.md`; none of the M5 stack applies there |
 | `docs/images/` | Diagram and efficiency chart |
@@ -202,10 +188,7 @@ Model weights, `~/open-webui-data`, Open WebUI exports or backups (they contain 
 - mlx-serve binds to `0.0.0.0` (the whole LAN) by default; both LaunchAgents pass `--host 127.0.0.1`. Check with `lsof -nP -iTCP:11234-11235 -sTCP:LISTEN`.
 - Hugging Face cache: model files live in the shared `~/.cache/huggingface/hub/blobs/`, and each `models--*` folder only links into it. Deleting a model's folder frees nothing; run `hf-cache-orphans.py` afterwards (Nov 3: 73.7 GB left behind by the iQ pack).
 - mlx-serve is pinned (`brew pin mlx-serve`). Upgrade on purpose: unpin, upgrade, `llm-bench.py --label mlx-prod` (flags drops over 7%), pin again.
-- GGUF rollback only: a model re-download restores the stock template (xhigh). Leave LM Studio's Chat Template box at default.
-- LM Studio serves nothing unless `FLASH_BACKEND=gguf`; `flash-up.sh` stops its server if it finds it running. Gemma 4 on mlx-serve can't batch two requests (they take turns), and every image becomes 256 tokens (scaled to 768×768). `top`'s "used" includes file cache (the 30 GB n-gram table); wired is ~18 GB idle and ~88-102 GB while Flash is working.
+- Gemma 4 on mlx-serve can't batch two requests (they take turns), and every image becomes 256 tokens (scaled to 768×768). `top`'s "used" includes file cache (the 30 GB n-gram table); wired is ~18 GB idle and ~88-102 GB while Flash is working.
 - Open WebUI valves: click "Custom" to flip a valve back to Default; saved valve values survive a function code update.
 - launchctl: wait ~5 s after `bootout` before `bootstrap`.
 - Folders: `~/ZuulRulez` stays on MacLLM (`~/bin` links point into it; never `git checkout` there). Monitor work goes in `~/ZuulRulez-monitor` (git worktree).
-- GGUF rollback only: rewriting a GGUF chat template (`gguf-set-template.py`): `gguf-template.py` prints a `=====` banner line before the template; strip it before writing the file back, or it is rendered into every prompt. LM Studio then keeps using the old template until `~/.lmstudio/.internal/gguf-metadata-cache.json` and `model-index-cache.json` are deleted (run `flash-down.sh` first, `flash-up.sh` after; both are rebuilt on rescan). LM Studio's template parser also rejects `\x` escapes (e.g. `replace("\x00", "")`).
-- A GGUF (Gemma, or the Flash rollback) that fails with "unknown model architecture" needs a newer llama.cpp runtime: `lms runtime update`. Older runtimes stay installed; roll back with `lms runtime select`. Re-run `llm-bench.py` for both models after a runtime change.

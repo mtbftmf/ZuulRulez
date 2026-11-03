@@ -8,7 +8,7 @@ judged blind. Python 3 stdlib only.
           answer (or "same") without knowing which setup wrote it, then press Reveal
 
   ~/bin/llm-compare.py run --label mlx  --url http://127.0.0.1:11234/v1
-  ~/bin/llm-compare.py run --label gguf --url http://localhost:1234/v1
+  ~/bin/llm-compare.py run --label other --url http://127.0.0.1:11236/v1 --model flash-next-test
   ~/bin/llm-compare.py report mlx gguf          # writes ~/llm-compare/mlx-vs-gguf.html; open it
   ~/bin/llm-compare.py run --label nomtp --url http://127.0.0.1:11234/v1 --only 2,3,7 --extra '{"enable_mtp": false}'
 

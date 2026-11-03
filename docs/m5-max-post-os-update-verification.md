@@ -4,7 +4,7 @@ Scope: the M5 Max Mac Studio (128 GB) and its canary, the M3 Pro MBP. Since 2026
 
 | Machine | User (uid) | Role |
 |---|---|---|
-| M5 Max Mac Studio, 128 GB | ewagner (503) | Open WebUI, LM Studio, mlx-serve |
+| M5 Max Mac Studio, 128 GB | ewagner (503) | Open WebUI, mlx-serve (Flash and Gemma; LM Studio until Nov 3) |
 | M3 Pro 14" MBP, 18 GB | evwagner (502) | Canary: takes each macOS update first |
 
 ## Update order

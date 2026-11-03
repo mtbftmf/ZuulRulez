@@ -25,7 +25,7 @@ print -r -- "$cfg" > ~/owui-model-config-backup.json
 
 order=$(curl -fsS "${auth[@]}" "$OWUI_URL/api/models" | jq -c '[(.data // .)[] | {id, name}]
   | sort_by((if .name == "Auto" then "0" else "1" end) + (.name | ascii_downcase)) | map(.id)')
-[[ $(jq length <<<"$order") -gt 0 ]] || { echo "no models returned; is LM Studio serving?" >&2; exit 1; }
+[[ $(jq length <<<"$order") -gt 0 ]] || { echo "no models returned; are the model servers up? (flash-up.sh)" >&2; exit 1; }
 
 n=$(jq -c --argjson o "$order" '.MODEL_ORDER_LIST = $o' <<<"$cfg" \
     | curl -fsS -X POST "${auth[@]}" -H 'Content-Type: application/json' -d @- "$OWUI_URL/api/v1/configs/models" \

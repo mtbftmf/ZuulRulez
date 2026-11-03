@@ -14,7 +14,7 @@ Step by step, troubleshoot why a Raspberry Pi 5 on my home LAN drops off Wi-Fi e
    time it to the end of the answer. Includes the persona and memory context, which keep the
    answer short.
 2. **API, bare prompt** (comparable across backends): set `URL` to the Flash server
-   (`http://127.0.0.1:11234/v1` for mlx-serve, `http://localhost:1234/v1` for the LM Studio GGUF)
+   (`http://127.0.0.1:11234/v1`, mlx-serve; the LM Studio GGUF at `localhost:1234` was removed Nov 3)
    and run the snippet below. Sampling matches the Auto Router (temperature 1.0), so length
    varies a lot run to run; compare tokens and tok/s, not just seconds.
 

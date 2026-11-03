@@ -9,6 +9,11 @@ router v1.4.1 (prefixes with attachments), `flash-up.sh` warm-up after reboot, `
 `llm-bench`/`llm-probe` finding the right server. Remaining: GGUF removal two weeks after the
 switch, if the quality check passes.
 
+**Status (2026-11-03):** closed. Gemma moved to its own mlx-serve the same day; the blind
+10-prompt check (`llm-compare.py`, `m5/tests/quality-prompts.md`) showed no consistent gap (GGUF better on 3 of 10 in the first round; a rerun of those 3
+prompts had mlx-serve with MTP best on 2, without MTP on 1, GGUF on 0), so the GGUF
+and LM Studio were removed and the rollback below no longer exists.
+
 ## Why
 
 Measured Oct 24 (`llm-bench.py --long-ctx 28000 --mem`, Gemma loaded in LM Studio):
@@ -157,7 +162,7 @@ mixed 4/8-bit affine).
 `M5_MAX_SYSTEM_PROFILE.md` (engine, quant, effort, measured, memory, still open), README stack
 table and daily-operations table (mlx-serve health/log commands), router policy doc, env examples.
 
-## Rollback
+## Rollback (removed Nov 3)
 
 1. `FLASH_BACKEND=gguf` in `~/.config/macllm.env`, then `~/bin/flash-up.sh` (stops the mlx-serve
    agent, loads the GGUF as `flash-next` again).

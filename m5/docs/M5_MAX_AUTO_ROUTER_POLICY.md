@@ -38,8 +38,8 @@ M-series Studios using a houdini account for friends and family hosting.
 
 - Fast model: Gemma 4 26B-A4B QAT, mlx-serve `127.0.0.1:11235` (FAST_URL) since v1.5.0; LM Studio
   `localhost:1234` (LMSTUDIO_URL) before. Thinking off unless FAST_PARAMS turns it on.
-- Strong model: Flash-Next, mlx-serve `127.0.0.1:11234` (STRONG_URL) since v1.4.0; the LM Studio
-  GGUF is the rollback (STRONG_URL http://localhost:1234/v1, EFFORT_MODE marker).
+- Strong model: Flash-Next, mlx-serve `127.0.0.1:11234` (STRONG_URL) since v1.4.0. The LM Studio GGUF
+  rollback was removed Nov 3; EFFORT_MODE marker and DEEP_MARKER remain in the code but are unused.
 - Default route is Gemma.
 - Flash-Next is for explicit /flash or /strong requests, or clearly complex work.
 - Explicit overrides:
@@ -57,7 +57,6 @@ M-series Studios using a houdini account for friends and family hosting.
   chat_template_kwargs {enable_thinking: true, reasoning_effort: medium}, xhigh for /deep,
   DEEP_PHRASES or DEEP_SCORE. mlx-serve turns thinking OFF when a request omits it, and
   thinking-off Flash answers worse, so any other path to Flash (personas) must send it too.
-- EFFORT_MODE marker (GGUF rollback): template default medium, [effort:xhigh] marker for deep routes.
 - [effort:low] buys no measurable speed; xhigh is a nudge, not a guarantee (Oct 18-19 probes).
 - Token caps when the request has none: STRONG_MAX_TOKENS 8192 (Flash medium),
   DEEP_MAX_TOKENS 24576 (Flash xhigh), FAST_MAX_TOKENS 0 (Gemma, no cap).
