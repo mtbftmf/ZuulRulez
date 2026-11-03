@@ -156,6 +156,7 @@ Token caps (v1.3.2): Auto builds its own request to the model server, so persona
 | 1 vs 2 simultaneous requests (v2) | `python3 ~/bin/llm-bench.py --model flash-next --streams 2` |
 | Saved runs (v2; each run is compared with the last one of the same model and label) | `python3 ~/bin/llm-bench.py --history` |
 | Benchmark under combined load | add `--load-model gemma-4-26b-a4b-it-qat --load-image ~/Pictures/test.png` (each model is sent to its own server; pass `--url` / `--load-url` when two servers list the same ID) |
+| Blind answer-quality comparison of two setups | `llm-compare.py run --label A --url …` per setup, then `llm-compare.py report A B` and open the page (prompts in `m5/tests/quality-prompts.md`; results stay in `~/llm-compare`) |
 | Probe context, cache and effort | `python3 ~/bin/llm-probe.py --suite all` |
 | Compare probe runs | `python3 ~/bin/llm-probe.py --summary llm-probe-history.csv` |
 | Memory per model | `memory_mb` in each server's `/metrics.json` (`llm-mem.py` covers GGUF models in LM Studio) |
@@ -180,7 +181,7 @@ Token caps (v1.3.2): Auto builds its own request to the model server, so persona
 | `m5/config/` | Env templates; copy to `~/.config/` and fill in (never commit the filled-in file) |
 | `m5/docs/` | Host-specific notes, M5 Max only: system profile, Auto Router policy, mlx-serve switch plan, local HTTPS, external RAID0 tiering |
 | `m5/templates/` | Stock and edited Flash-Next chat templates (GGUF rollback) |
-| `m5/tests/` | Fixed prompts for end-to-end comparisons (Test 1) |
+| `m5/tests/` | Fixed prompts for end-to-end comparisons (Test 1) and the 10-prompt quality set for `llm-compare.py` |
 | `gemma/` | Generic Gemma 4 builds for other M-series Studios (houdini account, friends-and-family hosting): installer, up/down scripts, rebuild scripts (preflight, Golden Gate upgrade, bootstrap, verify), runbook, Open WebUI memory text. See `gemma/README.md`; none of the M5 stack applies there |
 | `docs/images/` | Diagram and efficiency chart |
 | `CHANGELOG.md` | Dated history of changes and measured results |
