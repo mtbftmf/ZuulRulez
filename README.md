@@ -161,7 +161,8 @@ Token caps (v1.3.2): Auto builds its own request to the model server, so persona
 | Memory per model | `memory_mb` in each server's `/metrics.json` (`llm-mem.py` covers GGUF models in LM Studio) |
 | Watch Gemma requests | `tail -f ~/.mlx-serve/logs/mlx-serve-11235.log` |
 | Copy a persona setting to sibling personas | `owui-sync-flash.sh` (report → dry run → `DRY_RUN=0`) |
-| Fix one line in every persona's system prompt | `owui-prompt-lines.py` (report), then `--apply`; rules in `~/.config/owui-prompt-lines.json` (example in `m5/config/`). Your personal system prompt (Persistent User Context) is not a persona: edit it in Settings → General, then reload the page |
+| Fix one line in every persona's system prompt | `owui-prompt-lines.py` (report), then `--apply`; rules in `~/.config/owui-prompt-lines.json` (example in `m5/config/`) |
+| Same for your personal system prompt (Settings → General, `ui.system`) | `owui-prompt-lines.py --user`, then `--user --apply`; reload every open Open WebUI tab right after, or a stale tab can save the old prompt back |
 | Sync Open WebUI memories with the system profile | `owui-memories.py` (report), then `--apply`; `--list`, `--delete ID`. Source: "Open WebUI memory text" in `m5/docs/M5_MAX_SYSTEM_PROFILE.md` |
 | Re-sort dropdown | `~/bin/owui-sort-models.sh` |
 | See where Auto would send a message | `/route <message>` in a throwaway Auto chat |

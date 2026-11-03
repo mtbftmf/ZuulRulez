@@ -4,8 +4,8 @@ owui-prompt-lines.py — replace (or delete) single lines in the system prompts 
 leaving everything else in each prompt untouched. Python 3 stdlib only.
 
 Use it when the same stale line (old engine, port or path) sits in many personas' system prompts;
-owui-sync-flash.sh would overwrite whole prompts. It does not touch your personal system prompt
-(Settings → General → System Prompt, stored as ui.system in user settings); edit that one in the UI.
+owui-sync-flash.sh would overwrite whole prompts. With --user it edits your personal system prompt
+instead (Settings → General → System Prompt, stored as ui.system in your user settings).
 
 Rules file (JSON, default ~/.config/owui-prompt-lines.json; keep it out of the repo if it holds a
 LAN address). Each rule replaces the first line whose text, after leading spaces, starts with "prefix" and
@@ -20,6 +20,10 @@ Example: m5/config/owui-prompt-lines.example.json
   ~/bin/owui-prompt-lines.py                  # report: which personas carry each line, and what changes
   ~/bin/owui-prompt-lines.py --apply          # write the changes (backup of all models first)
   ~/bin/owui-prompt-lines.py --only flash-    # limit to model IDs containing this text
+  ~/bin/owui-prompt-lines.py --user           # same rules on your personal system prompt (report)
+  ~/bin/owui-prompt-lines.py --user --apply   # write it (backup of your settings first); then reload
+                                              # every open Open WebUI tab before changing any setting,
+                                              # or a stale tab can save the old prompt back
 
 Env: OWUI_URL (default http://localhost:8080), OWUI_TOKEN (required).
 """
@@ -75,6 +79,53 @@ def rewrite(prompt, rules):
     return "\n".join(out), changes
 
 
+def backup_path(stem):
+    """~/<stem>-YYYYmmdd-HHMMSS.json, with -2, -3... if that name is taken."""
+    base = os.path.expanduser(f"~/{stem}-{time.strftime('%Y%m%d-%H%M%S')}")
+    path, n = base + ".json", 1
+    while os.path.exists(path):
+        n += 1
+        path = f"{base}-{n}.json"
+    return path
+
+
+def user_prompt(token, rules, apply):
+    """Apply the rules to ui.system in the signed-in user's settings."""
+    try:
+        settings = api("GET", "/api/v1/users/user/settings", token) or {}
+    except urllib.error.HTTPError as e:
+        sys.exit(f"settings read failed: HTTP {e.code} (token expired? sign in again)")
+    except urllib.error.URLError as e:
+        sys.exit(f"cannot reach {OWUI_URL}: {e.reason}")
+    prompt = (settings.get("ui") or {}).get("system")
+    if not isinstance(prompt, str) or not prompt:
+        sys.exit("your personal system prompt (Settings → General → System Prompt) is empty")
+    new_prompt, changes = rewrite(prompt, rules)
+    for r in rules:
+        n = sum(1 for l in prompt.split("\n") if l.lstrip().startswith(r["prefix"]))
+        print(f"  {n:3}  {r['prefix']}")
+    if not changes:
+        print("\nYour personal system prompt already matches the rules.")
+        return
+    print("\nPersonal system prompt:")
+    for prefix, old, new in changes:
+        print(f"  - {short(old.strip())}")
+        print(f"  + {short(new.strip())}" if new is not None else "  + (line removed)")
+    if not apply:
+        print("\nRe-run with --user --apply to write.")
+        return
+    backup = backup_path("owui-user-settings-backup")
+    with open(backup, "x") as f:
+        json.dump(settings, f)
+    print(f"Backup: {backup}")
+    settings["ui"] = dict(settings["ui"], system=new_prompt)
+    try:
+        api("POST", "/api/v1/users/user/settings/update", token, settings)
+    except urllib.error.HTTPError as e:
+        sys.exit(f"FAILED: HTTP {e.code} {e.read().decode('utf-8', 'ignore')[:200]}")
+    print("Updated. Reload every open Open WebUI tab now (Cmd-Shift-R) before changing any setting.")
+
+
 def short(s, n=110):
     return s if len(s) <= n else s[:n - 1] + "…"
 
@@ -84,12 +135,17 @@ def main():
     ap.add_argument("--rules", default="~/.config/owui-prompt-lines.json")
     ap.add_argument("--only", default="", help="only model IDs containing this text")
     ap.add_argument("--apply", action="store_true", help="write the changes (default: report only)")
+    ap.add_argument("--user", action="store_true", help="edit your personal system prompt instead of personas")
     a = ap.parse_args()
 
     token = os.environ.get("OWUI_TOKEN", "")
     if not token:
         sys.exit("Set OWUI_TOKEN to an Open WebUI session token or API key")
     rules = load_rules(a.rules)
+    if a.user:
+        print("Lines found in your personal system prompt:")
+        user_prompt(token, rules, a.apply)
+        return
 
     try:
         resp = api("GET", "/api/v1/models/list", token)
@@ -99,8 +155,8 @@ def main():
         sys.exit(f"cannot reach {OWUI_URL}: {e.reason}")
     models = resp if isinstance(resp, list) else (resp.get("items") or resp.get("data") or [])
 
-    backup = os.path.expanduser(f"~/owui-models-backup-{time.strftime('%Y%m%d-%H%M%S')}.json")
-    with open(backup, "w") as f:
+    backup = backup_path("owui-models-backup")
+    with open(backup, "x") as f:
         json.dump(resp, f)
     print(f"Backup: {backup}")
 
