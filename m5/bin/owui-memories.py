@@ -101,8 +101,12 @@ def main():
         return
 
     def backup():
-        path = os.path.expanduser(f"~/owui-memories-backup-{time.strftime('%Y%m%d-%H%M%S')}.json")
-        with open(path, "w") as f:
+        base = os.path.expanduser(f"~/owui-memories-backup-{time.strftime('%Y%m%d-%H%M%S')}")
+        path, n = base + ".json", 1
+        while os.path.exists(path):        # two runs in the same second must not overwrite
+            n += 1
+            path = f"{base}-{n}.json"
+        with open(path, "x") as f:
             json.dump(mems, f, indent=1)
         print(f"Backup: {path}")
         return path
