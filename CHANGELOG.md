@@ -24,7 +24,11 @@ and takes `MONITOR_BG_IMAGE`, `MONITOR_HISTORY_FILE`, `MONITOR_STATE_FILE`, `MON
 
 Tested in the workspace against two stub mlx-serve endpoints: live 140 / 90 t/s with `~`, decode
 rates kept after requests finish, down server `—` (dark), idle server grey, graph points from both
-models; env file values picked up; `/api` returns the new G4/FLS fields. Not yet run on the M5.
+models; env file values picked up; `/api` returns the new G4/FLS fields.
+
+Result on the M5 (17:24): after the restart both rows showed grey `—` (servers up, no request yet);
+one 200-token request to each server gave G4 139.9 t/s (200 tokens / 1.43 s decode) and FLS 154.4 t/s
+(200 / 1.30 s; counting in words is easy for MTP), both rows bright; daemon log clean.
 
 ---
 
