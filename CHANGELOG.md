@@ -5,6 +5,29 @@ newest first. Format: `YYYY-MM-DD — what changed, why, measured result`.
 
 ---
 
+## 2026-11-03 — g4 t/s and the TPS graph from mlx-serve; LM Studio code removed
+
+LM Studio was removed from the M5 on Nov 3 (both models now run in mlx-serve), which left the
+`g4 t/s` row and the graph's TPS line dead: both were fed only by `lms log stream`. One poller
+now reads `/metrics.json` from Gemma (`:11235`) and Flash (`:11234`) every 5 s with the formulas
+Flash already used (decode = Δoutput_tokens.sum / Δdecode_time_seconds.sum; live = Δgeneration_tokens_live
+/ Δt while running, shown with `~`). Finished-request readings from both models feed the TPS line.
+Removed: the `lms log stream` reader, its idle watchdog, the GGUF-rollback check of
+`localhost:1234` and the `fls*` label. TPS graph scale 120 → 150 t/s (Gemma now reaches ~142) in
+the widget, the web page script and its legend.
+
+Repo hygiene: the background image path was hard-coded as `/Users/<name>/…` and the
+`MONITOR_*` variables in `env.example` were never read. The script now loads the env file
+named by `MONITOR_ENV_FILE` (set in the LaunchDaemon plist) or `~/.config/macmonitor.env`,
+and takes `MONITOR_BG_IMAGE`, `MONITOR_HISTORY_FILE`, `MONITOR_STATE_FILE`, `MONITOR_G4_URL`,
+`MONITOR_FLS_URL` from it (same defaults as before).
+
+Tested in the workspace against two stub mlx-serve endpoints: live 140 / 90 t/s with `~`, decode
+rates kept after requests finish, down server `—` (dark), idle server grey, graph points from both
+models; env file values picked up; `/api` returns the new G4/FLS fields. Not yet run on the M5.
+
+---
+
 ## 2026-10-17 — MBP monitor vertical mini strip
 
 Propagated vertical mini strip layout from Studio monitor to MBP monitor.

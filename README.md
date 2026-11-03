@@ -20,8 +20,8 @@ Two views from one process: a floating **desktop widget** (tkinter + PIL) and a
 | SWP | Swap used / total (GB) |
 | THM | Thermal pressure level |
 | EFF | GPU residency ÷ CPU watts (%/W) |
-| g4 t/s | Gemma-4 tokens/sec (live from LM Studio) |
-| fls t/s | Flash-Next tokens/sec (live from LM Studio) |
+| g4 t/s | Gemma 4 tokens/sec (mlx-serve on `127.0.0.1:11235`) |
+| fls t/s | Flash-Next tokens/sec (mlx-serve on `127.0.0.1:11234`) |
 
 ### Graph (10-hour window, Y-axis auto-zoomed)
 
@@ -32,21 +32,29 @@ Two views from one process: a floating **desktop widget** (tkinter + PIL) and a
 | Light grey | GPU (background reference) |
 | Grey | MEM delta |
 | Blue | EFF ÷ 500 |
-| Violet | TPS ÷ 125 |
+| Violet | TPS ÷ 150 (finished requests, both models) |
 
-### LMS t/s — how it works
+### Model t/s — how it works
 
-The monitor tails `lms log stream --source model --filter output --stats --json`
-and reads `data.stats.tokensPerSecond` from each completed generation event.
-It tracks the last reading per model abbreviation (`g4`, `flash`) and retains
-it for up to one hour. An idle-watchdog thread demotes the status from Active
-to Idle when no event arrives within 30 seconds.
+Both models run in their own mlx-serve (LM Studio was removed Nov 3, 2026). Every
+5 s the monitor reads each server's `/metrics.json`:
+
+- **decode t/s** = Δ`histograms.output_tokens.sum` / Δ`histograms.decode_time_seconds.sum`
+  for requests that finished since the last poll; kept on screen for up to an hour.
+- **live t/s** (shown with `~`) = Δ`gauges.generation_tokens_live` / Δt while
+  `gauges.requests_running` > 0. Never add `counters.generation_tokens_total`; it
+  double-counts.
+
+Row colour: bright while generating or within an hour of the last request, grey when
+the server is up but idle, dark when it is down. Each finished-request reading is also
+added to the graph's violet TPS line. Server URLs can be overridden with
+`MONITOR_G4_URL` / `MONITOR_FLS_URL`.
 
 **Note:** the t/s values are from real inference workloads, not synthetic
-benchmarks. Typical ranges on an M3 Ultra / 192 GB Mac Studio:
+benchmarks. Typical ranges on the M5 Max / 128 GB Mac Studio (Nov 3, 2026):
 
-- Gemma-4-26B-A4B-IT-QAT: ~80–118 t/s (graph scale: 125 t/s = 100%)
-- Flash-Next: ~28–48 t/s
+- Gemma 4 26B-A4B QAT: ~78–142 t/s (78 while Flash is also busy)
+- Flash-Next (MTP on): ~63–93 t/s
 
 ---
 
@@ -56,7 +64,7 @@ benchmarks. Typical ranges on an M3 Ultra / 192 GB Mac Studio:
 - Python 3.11+ (system or venv)
 - `pip install psutil Pillow flask`
 - `sudo` access for `powermetrics` (needed for GPU, PWR, GHz, THM, EFF)
-- [LM Studio](https://lmstudio.ai) with `lms` CLI for the t/s rows (optional)
+- mlx-serve with `--metrics` for the t/s rows (optional; rows show `—` without it)
 
 ---
 
@@ -118,7 +126,7 @@ sudo launchctl bootstrap system /Library/LaunchDaemons/com.user.macmonitor.plist
 | Branch | Contents |
 |--------|----------|
 | `M-ProcessorSystemMonitor` | This monitor (desktop widget + web dashboard) |
-| `MacLLM` | Local LLM stack — LM Studio, Open WebUI, router, benchmarks |
+| `MacLLM` | Local LLM stack — mlx-serve (Flash-Next, Gemma 4), Open WebUI, router, benchmarks |
 
 ---
 
