@@ -5,6 +5,27 @@ newest first. Format: `YYYY-MM-DD — what changed, why, measured result`.
 
 ---
 
+## 2026-11-05 — web dashboard bound to loopback; Caddy :9443 is the only ingress
+
+The Flask server ran flask_app.run(host="0.0.0.0", ...) on :9090, so with the application
+firewall disabled any host on the LAN could read the dashboard unauthenticated in cleartext:
+baseline probe http://192.168.68.105:9090/ returned 200 before the change. Caddy already
+reverse-proxied 127.0.0.1:9090 for :9443, so closing the wildcard bind needed no Caddyfile
+edit or reload. The fix is committed rather than edited only in ~/.local/bin because the
+deployed file is a copy of src/mac_monitor.py on this branch: a deploy from origin would
+have silently restored 0.0.0.0.
+
+One line, host="0.0.0.0" -> host="127.0.0.1" (line 774, the file's only 0.0.0.0).
+Deployed to ~/.local/bin/mac_monitor.py and restarted with launchctl kickstart -k
+system/com.user.macmonitor; no reboot, no plist change, no venv change.
+
+Result on the M5 (14:26): lsof shows 127.0.0.1:9090 only, no *:9090. Loopback 200;
+curl http://192.168.68.105:9090/ fails with exit 7 (connection refused, 1 ms);
+https://Mach5s-Mac-Studio.local:9443 200; launchctl print state running, runs 1 -> 2,
+last exit code 0 (SIGTERM handled cleanly), PID stable at 6903 across a second 15 s check.
+Direct :9090 URLs in the module docstring and README were corrected to the https :9443
+URL in the preceding commit.
+
 ## 2026-11-03 — g4 t/s and the TPS graph from mlx-serve; LM Studio code removed
 
 LM Studio was removed from the M5 on Nov 3 (both models now run in mlx-serve), which left the
