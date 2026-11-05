@@ -95,7 +95,7 @@ set -a; source ~/.config/macmonitor.env; set +a
 ~/macmonitor-venv/bin/python3 ~/.local/bin/mac_monitor.py
 ```
 
-Web dashboard: `http://<studio-lan-ip>:9090`
+Web dashboard: `https://<studio-hostname>.local:9443` — the monitor binds 127.0.0.1; Caddy provides HTTPS
 
 ### 4 — Install as a LaunchDaemon (auto-start on boot)
 

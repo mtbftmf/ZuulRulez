@@ -4,7 +4,7 @@ Mac Studio System Monitor
 Run: python3 mac_monitor.py
 Requirements: pip3 install psutil Pillow flask --break-system-packages
 Background image: MONITOR_BG_IMAGE in ~/.config/macmonitor.env (default ~/.local/bin/TxtSysMonBkgd.webp)
-Web dashboard: http://<studio-ip>:9090
+Web dashboard: https://<studio-hostname>.local:9443 (loopback bind; direct :9090 is closed)
 """
 
 import tkinter as tk
