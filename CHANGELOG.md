@@ -2,6 +2,9 @@
 
 Newest first. Entries before Oct 16, 2026 were reconstructed from chat history.
 
+## 2026-11-05
+- Open WebUI on the M5 now binds `127.0.0.1:8080` only (`--host 127.0.0.1`, `ExitTimeOut` 30) and `CORS_ALLOW_ORIGIN` lists the Caddy origins joined by `;` (the LAN IP and the `.local` hostname, both on `:8443`). Why: close the plaintext LAN path so Caddy is the only way in. Result: `lan8080` refuses, Caddy 200, both models answer in Open WebUI. The first CORS value listed only the IP, so the `.local` origin was rejected (`<origin> is not an accepted origin` in `serve.stderr.log`), replies never arrived although `/health` stayed 200. Plist changes need `bootout`, a wait until the label unloads, then `bootstrap`; `kickstart -k` does not reload the plist. Still to do: bind System Monitor `:9090` to loopback and change `--host 0.0.0.0` in the stale `~/scripts/openwebui-start.sh`.
+
 ## 2026-11-04
 - M5 Max Studio: `sudo bash gemma/hardening/block-telemetry.sh on` (same script as the M1). Why: block `radarsubmissions.apple.com` on the M5 too. Result: marked block in `/etc/hosts`, `dscacheutil` resolves the host to 0.0.0.0 and ::, AutoSubmit=0 ThirdPartyDataSubmit=0. The M5 has no `40-verify.sh` check for it: after a macOS update run `sudo bash ~/ZuulRulez/gemma/hardening/block-telemetry.sh status`, and `on` again if it reports `[NOT blocked]`.
 
