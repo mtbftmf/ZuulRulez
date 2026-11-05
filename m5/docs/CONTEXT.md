@@ -70,10 +70,21 @@ MLX_POLL_INTERVAL = 5
 ## Key fixes applied (chronological)
 
 ### 2026-11-01 — ARD typing lag (resolved)
-- **Symptom:** 2–3 s keyboard lag via Apple Remote Desktop after Golden Gate 27.2 + Xcode update
-- **Root cause:** AOC display slept via DP/CalDigit TS3 Plus → macOS fell back to screensharingd virtual framebuffer → WindowServer `set_cursor_surface` failures stalled ARD input dispatch (`system_profiler` showed "Screen Sharing Virtual Display")
-- **Fix:** AOC connected directly via HDMI; `pmset -a displaysleep 0`
-- **Note:** HDMI dummy plug needed for ARD headless use; not needed for SSH-only
+- **Symptom:** 2-3 s keyboard lag via Apple Remote Desktop after Golden Gate 27.2.
+- **Root cause:** AOC display slept via DP/CalDigit TS3 Plus -> macOS fell back to
+  the screensharingd virtual framebuffer -> WindowServer set_cursor_surface
+  failures stalled ARD input dispatch.
+- **Fix:** Force the virtual display to true 1080p with scaling off:
+  displayplacer id:15C9F10C-0D98-43BA-B726-77AD38EFFF11 res:1920x1080 hz:60
+  color_depth:4 scaling:off. Re-verify Scaling: off after each new session.
+- **Note:** HDMI dummy plug recommended for ARD headless use; not needed SSH-only.
+
+### 2026-11-05 — AOC produces no EDID (UNRESOLVED)
+- AOC yields no EDID via HDMI, via HDMI->USB-C, or through either dock; four
+  reboots and mode resets were byte-identical.
+- pmset -a displaysleep 0 is NOT a fix - it was already 0 and the failure recurred.
+- Treat as physical: AC-out 30s on dock and panel, boot with one dock attached,
+  input pinned manually in the AOC OSD. Do not relitigate software.
 
 ### 2026-11-05 — MEM-delta graph spike fix (commit `69ce3aa`)
 - **Symptom:** Extreme white/grey vertical spikes in MEM-delta graph line during MLX model load/unload (switching Gemma 4 ↔ Flash)
