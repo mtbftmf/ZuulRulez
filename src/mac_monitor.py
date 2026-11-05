@@ -771,7 +771,7 @@ def api():
 
 def _web_server():
     logging.getLogger('werkzeug').setLevel(logging.ERROR)
-    flask_app.run(host="0.0.0.0", port=WEB_PORT, threaded=True, use_reloader=False)
+    flask_app.run(host="127.0.0.1", port=WEB_PORT, threaded=True, use_reloader=False)
 
 
 # ── GUI ───────────────────────────────────────────────────────────────────────
