@@ -123,3 +123,10 @@ Imported working monitor source into `M-ProcessorSystemMonitor` branch.
 - Correction to the entry above: `sudo pmset -a displaysleep 0` is NOT a
   prevention. `displaysleep` was already 0 on every profile when checked, and the
   failure recurred anyway. Do not treat it as a fix.
+- Also 2026-11-05 (was undocumented, code-only in `69ce3aa`): MEM-delta line no
+  longer produces full-height white spikes on MLX weight swaps. Delta is clamped
+  to +/-10 before the 2.5x scale (`src/mac_monitor.py:583`) and the delta colour
+  is dimmed from `170,170,170` to `80,80,95` (`src/mac_monitor.py:124`).
+- Correction to the entry above: `sudo pmset -a displaysleep 0` is NOT a
+  prevention. `displaysleep` was already 0 on every profile when checked, and the
+  failure recurred anyway. Do not treat it as a fix.
