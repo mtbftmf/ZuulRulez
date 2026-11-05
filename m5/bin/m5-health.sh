@@ -47,3 +47,14 @@ rule
 print "[power]"
 pmset -g custom 2>/dev/null | grep -E '^(AC Power|Battery)|sleep|powernap|autorestart|standby|ttyskeepawake' | sed 's/^/  /'
 rule
+
+print "[web]"
+m=$(curl -s -o /dev/null -w '%{http_code}' --max-time 2 http://127.0.0.1:9090/)
+print "  monitor9090 loopback: ${m}$([[ "$m" != 2* ]] && print '  <- monitor DOWN (direct :9090 is closed, so :9443 is dead too)')"
+w=$(curl -s -o /dev/null -w '%{http_code}' --max-time 2 http://127.0.0.1:8080/api/config)
+print "  openwebui8080 loopback: ${w}$([[ "$w" != 2* ]] && print '  <- engine or UI down')"
+b=$(netstat -an -p tcp -W 2>/dev/null | awk '$4 ~ /\.9090$/ && $6 == "LISTEN" && $4 !~ /^127\./ {print $4}')
+print "  lan9090 closed: ${b:+REGRESSION listener on $b}${b:-no non-loopback :9090 listener}"
+f=$(sudo -n /usr/libexec/ApplicationFirewall/socketfilterfw --getglobalstate 2>/dev/null)
+print "  firewall: ${f:-unreadable (sudo not cached)}"
+rule
