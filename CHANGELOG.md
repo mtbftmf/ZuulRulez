@@ -104,3 +104,22 @@ Imported working monitor source into `M-ProcessorSystemMonitor` branch.
 **Prevent recurrence:** `sudo pmset -a displaysleep 0` — keeps display signal active so macOS never drops the real display and falls back to virtual.
 
 **Note for headless deployments:** Any Mac running without a physical display will exhibit this ARD lag. Use an HDMI dummy plug (4K@60Hz rated) to give macOS a real framebuffer. Confirmed needed for M1 Studio Max shipping as headless Gemma 4 LLM server.
+
+## 2026-11-05 — display path regressed; Studio is headless (addendum to the ARD entry)
+- The HDMI + `pmset displaysleep 0` mitigation above has failed. AOC trains at
+  firmware, dies at macOS handoff; no HID activity wakes it. Four reboots: no change.
+- `displayplacer` lists only the Screen Sharing virtual display. WindowServer's
+  displays plist has no AOC entry: no EDID completion, no cached mode to reset.
+- Two Thunderbolt docks attached — ACASIS TB501Pro (fw 62.62) and CalDigit TS3 Plus
+  (fw 44.1). DP alt-mode allocation spans both and clears only with AC removed.
+- Holds so far: `displayplacer id:15C9F10C-0D98-43BA-B726-77AD38EFFF11
+  res:1920x1080 hz:60 color_depth:4 scaling:off` — ARD encodes true 1080p instead
+  of 3840x2160 HiDPI. Re-verify after each new Screen Sharing session.
+- `sudo pmset -u sleep 0` applied.
+- Also 2026-11-05 (was undocumented, code-only in `69ce3aa`): MEM-delta line no
+  longer produces full-height white spikes on MLX weight swaps. Delta is clamped
+  to +/-10 before the 2.5x scale (`src/mac_monitor.py:583`) and the delta colour
+  is dimmed from `170,170,170` to `80,80,95` (`src/mac_monitor.py:124`).
+- Correction to the entry above: `sudo pmset -a displaysleep 0` is NOT a
+  prevention. `displaysleep` was already 0 on every profile when checked, and the
+  failure recurred anyway. Do not treat it as a fix.
