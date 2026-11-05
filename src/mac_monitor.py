@@ -121,7 +121,7 @@ GRAPH_COLORS = {
     "mem_red":    (255,  68,  68),   #  5.86:1
     "gpu":        (180, 180, 188),   #  ~8.5:1  light grey — background context, WU-style
     "swp":        (255, 100,   0),   #  7.08:1  distinct orange (was same red as mem_red)
-    "delta":      (170, 170, 170),   #  8.59:1  (was 85,85,85 — FAIL 2.68:1)
+    "delta":      (80,  80,  95),    #  3.2:1   dimmed — spike context only
     "eff":        (80,  100, 180),   #  3.42:1  muted blue-grey (context line, not primary)
     "tps":        (224,  64, 251),   #  7.21:1  violet — distinct from SWP orange
     "grid":       (26,   26,  42),   #  decorative — contrast not required
@@ -580,7 +580,7 @@ def _render_graph(gw, gh, pad=26):
         dlt = []
         for i in range(MEM_DELTA_SAMPLES, len(mem_snap)):
             d = mem_snap[i][1] - mem_snap[i - MEM_DELTA_SAMPLES][1]
-            dlt.append((mem_snap[i][0], min(100, max(0, 50 + d * 5))))
+            dlt.append((mem_snap[i][0], min(100, max(0, 50 + min(10, max(-10, d)) * 2.5))))
         plot_line(dlt, GRAPH_COLORS["delta"])
 
     # GPU (teal) — draw before MEM so MEM line stays on top
