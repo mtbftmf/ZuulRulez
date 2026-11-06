@@ -164,7 +164,7 @@ Token caps (v1.3.2): Auto builds its own request to the model server, so persona
 | Path | Contents |
 | --- | --- |
 | `m5/bin/` | Scripts linked into `~/bin` by `install.sh` |
-| `m5/launchd/` | LaunchAgent templates rendered by `install.sh --launchd`: `com.$USER.flash-up` (login script), `com.$USER.mlx-serve` (Flash server), `com.$USER.mlx-serve-gemma` (Gemma server), `com.$USER.m5-health-watch` (runs `m5-health-watch.sh` every 15 min; logs only when a problem appears or clears) |
+| `m5/launchd/` | LaunchAgent templates rendered by `install.sh --launchd`: `com.$USER.flash-up` (login script), `com.$USER.mlx-serve` (Flash server), `com.$USER.mlx-serve-gemma` (Gemma server), `com.$USER.m5-health-watch` (runs `m5-health-watch.sh` every 15 min, which also runs `m5-drift.sh`; logs only when a problem appears or clears) |
 | `m5/openwebui/` | Open WebUI functions (router, filter) |
 | `m5/config/` | Env templates; copy to `~/.config/` and fill in (never commit the filled-in file) |
 | `m5/docs/` | Host-specific notes, M5 Max only: system profile, Auto Router policy, mlx-serve switch plan, local HTTPS |
