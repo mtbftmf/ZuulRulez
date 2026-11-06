@@ -698,7 +698,7 @@ function drawGraph(mem,gpu,swp,eff,tps){
   }
   if(mem&&mem.length>=7){
     const d=[];
-    for(let i=6;i<mem.length;i++) d.push([mem[i][0],Math.min(100,Math.max(0,50+(mem[i][1]-mem[i-6][1])*5))]);
+    for(let i=6;i<mem.length;i++){const dd=mem[i][1]-mem[i-6][1],dc=Math.min(10,Math.max(-10,dd));d.push([mem[i][0],Math.min(100,Math.max(0,50+dc*2.5))]);}
     pl(d,'#aaaaaa');
   }
   ctx.globalAlpha=0.5; pl(gpu,'#b4b4bc'); ctx.globalAlpha=1.0;
