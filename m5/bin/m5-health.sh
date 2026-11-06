@@ -1,5 +1,8 @@
 #!/bin/zsh
 export PATH=/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin
+[[ -f "$HOME/.config/macllm.env" ]] && source "$HOME/.config/macllm.env"
+# Caddy URL for the Open WebUI probe; must match the certificate's name (see env.example)
+OWUI_PROBE_URL="${OWUI_PROBE_URL:-https://localhost:8443/}"
 
 HR=$(printf '=%.0s' {1..78})
 rule() { print -r -- "$HR" }
@@ -40,7 +43,7 @@ for ep in "flash|http://127.0.0.1:11234/v1/models" "gemma|http://127.0.0.1:11235
   if [[ "$code" == 200 ]]; then print "  ${name} ${code} ok"
   else print "  ${(r:8)name}${code} DOWN"; fi
 done
-owui=$(curl -s --cacert "$HOME/spdif-share/caddy-internal-root.crt" -o /dev/null -w "%{http_code}" --max-time 4 https://192.168.68.105:8443/)
+owui=$(curl -s --cacert "$HOME/spdif-share/caddy-internal-root.crt" -o /dev/null -w "%{http_code}" --max-time 4 "$OWUI_PROBE_URL")
 print "  owui    ${owui} $( [[ "$owui" == 200 ]] && echo ok || echo CHECK )"
 rule
 
