@@ -12,6 +12,11 @@ export PATH=/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin
 export LC_ALL=C   # comm needs the same sort order in a terminal and under launchd
 [[ -f "$HOME/.config/macllm.env" ]] && source "$HOME/.config/macllm.env"
 
+# A baseline written while any of these is overridden would bake a temporary path or root into a durable fact and
+# report it as drift forever, so `snapshot` refuses (DRIFT_SNAPSHOT_FORCE=1 if the override is permanent and intended).
+OVERRIDDEN=()
+for v in DRIFT_PLIST_DIRS CADDY_ROOT DRIFT_KEYCHAIN; do [[ -n "${(P)v+x}" ]] && OVERRIDDEN+=($v); done
+
 BASE="${DRIFT_BASELINE:-$HOME/.local/state/m5-drift/baseline}"
 PLIST_DIRS=(${=DRIFT_PLIST_DIRS:-/Library/LaunchDaemons /Library/LaunchAgents $HOME/Library/LaunchAgents})
 CADDY_ROOT="${CADDY_ROOT:-/opt/homebrew/var/lib/caddy/pki/authorities/local/root.crt}"
@@ -92,7 +97,7 @@ caddy_check() {
 
 # Origins Open WebUI refused since the last check. The handshake in m5-health.sh only tries the origins in
 # OWUI_ORIGINS; a browser using an origin nobody listed shows up only here. The health script's own control origin
-# (example.invalid) is refused on purpose every run, so it is not counted. A shorter log (rotated) resets the count.
+# (example.invalid) is refused on purpose every run, so it is not counted. A shorter log (rotated) is counted from its start; a missing state file rebaselines with a WARN.
 rejections() {
   [[ -r "$OWUI_ERR_LOG" ]] || { print "WARN: cannot read $OWUI_ERR_LOG (rejection check skipped)"; return 0 }
   local all cur prev=0 had=0 new
@@ -101,7 +106,12 @@ rejections() {
   [[ -f "$REJ_STATE" ]] && { prev=$(<"$REJ_STATE"); had=1 }
   [[ "$prev" == <-> ]] || had=0
   mkdir -p "${REJ_STATE:h}"; print -r -- "$cur" > "$REJ_STATE"
-  (( had )) || return 0      # first run only records the count: old lines are not news
+  if (( ! had )); then      # first run, or the state file was lost: record the count, do not replay old lines
+    print "WARN: rejection state absent, rebaselined at $cur line(s)"; return 0
+  fi
+  if (( cur < prev )); then # rotated or truncated: everything in the new file is newer than the last check
+    print "WARN: $OWUI_ERR_LOG shrank (rotated or truncated); counting its $cur line(s) as new"; prev=0
+  fi
   (( cur > prev )) || return 0
   new=$(print -r -- "$all" | tail -n +$(( prev + 1 )) | sed 's/ is not an accepted origin.*//; s/.* //' | sort -u | tr '\n' ' ')
   print "DRIFT: Open WebUI refused $(( cur - prev )) request(s) from unlisted origin(s): ${new% } (add to the plist CORS_ALLOW_ORIGIN and OWUI_ORIGINS, then bootout, wait, bootstrap)"
@@ -122,6 +132,9 @@ origin_coverage() {
 case "${1:-check}" in
   show) facts | sort -u ;;
   snapshot)
+    if (( ${#OVERRIDDEN} )) && [[ -z "${DRIFT_SNAPSHOT_FORCE:-}" ]]; then
+      print -r -- "ABORT: refusing to write the baseline with ${OVERRIDDEN[*]} overridden (DRIFT_SNAPSHOT_FORCE=1 to force)"; exit 1
+    fi
     mkdir -p "${BASE:h}" && facts | sort -u > "$BASE" && print "baseline saved: $(wc -l < "$BASE" | tr -d ' ') facts in $BASE" ;;
   check)
     orphans
