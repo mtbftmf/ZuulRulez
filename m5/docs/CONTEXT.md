@@ -1,7 +1,7 @@
 # ZuulRulez Monitor — Session Context
 
 > Feed this file to any LLM session before working on the monitor code.
-> Last updated: 2026-11-05
+> Last updated: 2026-11-06
 
 ---
 
@@ -59,7 +59,7 @@ MLX_POLL_INTERVAL = 5
 - **LaunchAgent** manages restart — uses Python 3.14 (not Homebrew 3.15)
 - Python 3.15 (Homebrew) lacks tkinter; `nohup python3` will fail with `ModuleNotFoundError: _tkinter` — this is harmless, ignore it
 - Check running PID: `pgrep -f mac_monitor`
-- Log: `~/mac_monitor.log`
+- Log: `~/.local/bin/mac_monitor.log` (not `~/mac_monitor.log`)
 
 ### PIL graph — desktop
 - Throttled to every 3rd tick (15 s) to reduce CPU
@@ -70,21 +70,10 @@ MLX_POLL_INTERVAL = 5
 ## Key fixes applied (chronological)
 
 ### 2026-11-01 — ARD typing lag (resolved)
-- **Symptom:** 2-3 s keyboard lag via Apple Remote Desktop after Golden Gate 27.2.
-- **Root cause:** AOC display slept via DP/CalDigit TS3 Plus -> macOS fell back to
-  the screensharingd virtual framebuffer -> WindowServer set_cursor_surface
-  failures stalled ARD input dispatch.
-- **Fix:** Force the virtual display to true 1080p with scaling off:
-  displayplacer id:15C9F10C-0D98-43BA-B726-77AD38EFFF11 res:1920x1080 hz:60
-  color_depth:4 scaling:off. Re-verify Scaling: off after each new session.
-- **Note:** HDMI dummy plug recommended for ARD headless use; not needed SSH-only.
-
-### 2026-11-05 — AOC produces no EDID (UNRESOLVED)
-- AOC yields no EDID via HDMI, via HDMI->USB-C, or through either dock; four
-  reboots and mode resets were byte-identical.
-- pmset -a displaysleep 0 is NOT a fix - it was already 0 and the failure recurred.
-- Treat as physical: AC-out 30s on dock and panel, boot with one dock attached,
-  input pinned manually in the AOC OSD. Do not relitigate software.
+- **Symptom:** 2–3 s keyboard lag via Apple Remote Desktop after Golden Gate 27.2 + Xcode update
+- **Root cause:** AOC display slept via DP/CalDigit TS3 Plus → macOS fell back to screensharingd virtual framebuffer → WindowServer `set_cursor_surface` failures stalled ARD input dispatch (`system_profiler` showed "Screen Sharing Virtual Display")
+- **Fix:** AOC connected directly via HDMI; `pmset -a displaysleep 0`
+- **Note:** HDMI dummy plug needed for ARD headless use; not needed for SSH-only
 
 ### 2026-11-05 — MEM-delta graph spike fix (commit `69ce3aa`)
 - **Symptom:** Extreme white/grey vertical spikes in MEM-delta graph line during MLX model load/unload (switching Gemma 4 ↔ Flash)
@@ -98,6 +87,18 @@ MLX_POLL_INTERVAL = 5
   "delta": (80, 80, 95),    # dimmed — spike context only
   ```
 - Previous values: multiplier `* 5` unbounded; color `(170, 170, 170)`
+
+### 2026-11-06 — JS web graph delta clamp fix (commit `8a56918`)
+- **Symptom:** Web dashboard graph completely frozen — numerical stats updating but graph not drawing
+- **Root cause:** The 2026-11-05 PIL fix was applied only to Python (line 583). The JS canvas graph in `HTML_TEMPLATE` still used the unbounded `* 5` formula. Out-of-range delta values corrupted the y-axis zoom (`yLo`/`yHi` nonsensical), causing `drawGraph()` to render nothing.
+- **Fix — JS line ~701** (inside `HTML_TEMPLATE` string):
+  ```javascript
+  // Before:
+  for(let i=6;i<mem.length;i++) d.push([mem[i][0],Math.min(100,Math.max(0,50+(mem[i][1]-mem[i-6][1])*5))]);
+  // After:
+  for(let i=6;i<mem.length;i++){const dd=mem[i][1]-mem[i-6][1],dc=Math.min(10,Math.max(-10,dd));d.push([mem[i][0],Math.min(100,Math.max(0,50+dc*2.5))]);}
+  ```
+- **Lesson:** PIL graph (desktop) and JS canvas graph (web) are independent renderers — fixes must be applied to both.
 
 ---
 
