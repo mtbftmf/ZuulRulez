@@ -56,10 +56,13 @@ MLX_POLL_INTERVAL = 5
 - Internal curl: `curl http://127.0.0.1:9090/api`
 
 ### Process management
-- **LaunchAgent** manages restart — uses Python 3.14 (not Homebrew 3.15)
-- Python 3.15 (Homebrew) lacks tkinter; `nohup python3` will fail with `ModuleNotFoundError: _tkinter` — this is harmless, ignore it
+- **System LaunchDaemon** — `/Library/LaunchDaemons/com.user.macmonitor.plist`, root-owned, runs as `ewagner` via `UserName` key. Survives reboot. Lives in the **system domain**, not the user domain.
+  - Verify domain: `sudo launchctl print system/com.user.macmonitor | grep -E 'path =|state =|pid ='`
+  - NOT in `~/Library/LaunchAgents/` — that directory has no mac-monitor plist
+- Python 3.14 (not Homebrew 3.15) — 3.15 lacks tkinter; any `nohup python3` failure in log is harmless
 - Check running PID: `pgrep -f mac_monitor`
-- Log: `~/.local/bin/mac_monitor.log` (not `~/mac_monitor.log`)
+- Logs: `/tmp/macmonitor.log` (stdout) and `/tmp/macmonitor.err` (stderr)
+  - Verify: `sudo lsof -p $(pgrep -f mac_monitor) | grep '\.log'`
 
 ### PIL graph — desktop
 - Throttled to every 3rd tick (15 s) to reduce CPU
@@ -75,7 +78,7 @@ MLX_POLL_INTERVAL = 5
 - **Fix:** AOC connected directly via HDMI; `pmset -a displaysleep 0`
 - **Note:** HDMI dummy plug needed for ARD headless use; not needed for SSH-only
 
-### 2026-11-05 — MEM-delta graph spike fix (commit `69ce3aa`)
+### 2026-11-05 — MEM-delta graph spike fix
 - **Symptom:** Extreme white/grey vertical spikes in MEM-delta graph line during MLX model load/unload (switching Gemma 4 ↔ Flash)
 - **Root cause:** Delta multiplier was unbounded `d * 5`; large memory swings from MLX weight swaps amplified to full-height spikes
 - **Fix — line 583** (delta calculation):
@@ -88,7 +91,7 @@ MLX_POLL_INTERVAL = 5
   ```
 - Previous values: multiplier `* 5` unbounded; color `(170, 170, 170)`
 
-### 2026-11-06 — JS web graph delta clamp fix (commit `8a56918`)
+### 2026-11-06 — JS web graph delta clamp fix
 - **Symptom:** Web dashboard graph completely frozen — numerical stats updating but graph not drawing
 - **Root cause:** The 2026-11-05 PIL fix was applied only to Python (line 583). The JS canvas graph in `HTML_TEMPLATE` still used the unbounded `* 5` formula. Out-of-range delta values corrupted the y-axis zoom (`yLo`/`yHi` nonsensical), causing `drawGraph()` to render nothing.
 - **Fix — JS line ~701** (inside `HTML_TEMPLATE` string):
@@ -98,7 +101,7 @@ MLX_POLL_INTERVAL = 5
   // After:
   for(let i=6;i<mem.length;i++){const dd=mem[i][1]-mem[i-6][1],dc=Math.min(10,Math.max(-10,dd));d.push([mem[i][0],Math.min(100,Math.max(0,50+dc*2.5))]);}
   ```
-- **Lesson:** PIL graph (desktop) and JS canvas graph (web) are independent renderers — fixes must be applied to both.
+- **Lesson:** PIL graph (desktop) and JS canvas graph (web) are independent renderers — fixes must be applied to both. Verified with `git grep -n -E '\* *5|\* *2\.5' origin/M-ProcessorSystemMonitor -- '*mac_monitor*'` — only two sites (lines 583 and 701), both fixed.
 
 ---
 
@@ -132,16 +135,24 @@ Separate file for the headless M1 server shipped to CA friend.
 ## Quick diagnostics
 
 ```bash
-# Is monitor running?
+# Is monitor running and in which domain?
 pgrep -f mac_monitor
+sudo launchctl print system/com.user.macmonitor | grep -E 'path =|state =|pid ='
 
 # Is API healthy?
 curl -s http://127.0.0.1:9090/api | python3 -c "import json,sys; d=json.load(sys.stdin); print('OK, keys:', len(d))"
 
-# Recent log
-tail -20 ~/mac_monitor.log
+# Port bind — confirm loopback only
+sudo lsof -nP -iTCP:9090 -sTCP:LISTEN
 
-# Git status
-git -C ~/ZuulRulez-monitor status
+# Logs (stdout / stderr)
+tail -20 /tmp/macmonitor.log
+tail -20 /tmp/macmonitor.err
+
+# Verify log path against reality
+sudo lsof -p $(pgrep -f mac_monitor) | grep '\.log'
+
+# Git — always print, never hard-code hashes
 git -C ~/ZuulRulez-monitor log --oneline -5
+git -C ~/ZuulRulez log --oneline -5
 ```
