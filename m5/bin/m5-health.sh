@@ -60,4 +60,17 @@ b=$(netstat -an -p tcp -W 2>/dev/null | awk '$4 ~ /\.9090$/ && $6 == "LISTEN" &&
 print "  lan9090 closed: ${b:+REGRESSION listener on $b}${b:-no non-loopback :9090 listener}"
 f=$(sudo -n /usr/libexec/ApplicationFirewall/socketfilterfw --getglobalstate 2>/dev/null)
 print "  firewall: ${f:-unreadable (sudo not cached)}"
+# Open WebUI streams chat over a websocket and rejects any Origin missing from CORS_ALLOW_ORIGIN, while
+# /health stays 200. Handshake with each origin clients use: 101 = accepted, anything else = rejected.
+owui_ws() { curl -s -o /dev/null --max-time 1 --http1.1 -H "Connection: Upgrade" -H "Upgrade: websocket" -H "Sec-WebSocket-Version: 13" -H "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==" -H "Origin: $1" -w '%{http_code}' "http://127.0.0.1:8080/ws/socket.io/?EIO=4&transport=websocket" }
+if [[ -n "${OWUI_ORIGINS:-}" ]]; then
+  for o in ${=OWUI_ORIGINS}; do
+    c=$(owui_ws "$o")
+    print "  ws-origin ${o}: ${c}$([[ "$c" == 101 ]] || { [[ "$c" == 000 ]] && print '  <- no response (Open WebUI down?)' || print '  <- REJECTED: chat will not stream; add it to CORS_ALLOW_ORIGIN'; })"
+  done
+  c=$(owui_ws "https://example.invalid")
+  print "  ws-origin unlisted: ${c}$([[ "$c" == 101 ]] && print '  <- allowlist is open (wildcard CORS?)')"
+else
+  print "  ws-origin: skipped (set OWUI_ORIGINS in ~/.config/macllm.env)"
+fi
 rule
