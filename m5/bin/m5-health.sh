@@ -63,10 +63,20 @@ print "  firewall: ${f:-unreadable (sudo not cached)}"
 # Open WebUI streams chat over a websocket and rejects any Origin missing from CORS_ALLOW_ORIGIN, while
 # /health stays 200. Handshake with each origin clients use: 101 = accepted, anything else = rejected.
 owui_ws() { curl -s -o /dev/null --max-time 1 --http1.1 -H "Connection: Upgrade" -H "Upgrade: websocket" -H "Sec-WebSocket-Version: 13" -H "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==" -H "Origin: $1" -w '%{http_code}' "http://127.0.0.1:8080/ws/socket.io/?EIO=4&transport=websocket" }
+# Diagnosis only, never the probe list: a rejected origin that is in the plist means the plist was edited
+# but the running process never reloaded it; one that is not in the plist was never added.
+owui_hint() {
+  local cors; cors=$(plutil -extract EnvironmentVariables.CORS_ALLOW_ORIGIN raw -o - /Library/LaunchDaemons/com.openwebui.serve.plist 2>/dev/null) || { print -n 'plist unreadable'; return }
+  local -a list; list=(${(s:;:)cors})
+  if (( ${list[(Ie)$1]} )); then print -n 'in plist but rejected: edited, not reloaded (bootout, wait, bootstrap)'
+  else print -n 'not in plist CORS_ALLOW_ORIGIN: add it, then reload'; fi
+}
 if [[ -n "${OWUI_ORIGINS:-}" ]]; then
   for o in ${=OWUI_ORIGINS}; do
     c=$(owui_ws "$o")
-    print "  ws-origin ${o}: ${c}$([[ "$c" == 101 ]] || { [[ "$c" == 000 ]] && print '  <- no response (Open WebUI down?)' || print '  <- REJECTED: chat will not stream; add it to CORS_ALLOW_ORIGIN'; })"
+    if [[ "$c" == 101 ]]; then print "  ws-origin ${o}: ${c}"
+    elif [[ "$c" == 000 ]]; then print "  ws-origin ${o}: ${c}  <- no response (Open WebUI down?)"
+    else print "  ws-origin ${o}: ${c}  <- REJECTED: chat will not stream; $(owui_hint "$o")"; fi
   done
   c=$(owui_ws "https://example.invalid")
   print "  ws-origin unlisted: ${c}$([[ "$c" == 101 ]] && print '  <- allowlist is open (wildcard CORS?)')"
