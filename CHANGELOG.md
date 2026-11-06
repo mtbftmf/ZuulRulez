@@ -123,3 +123,7 @@ Imported working monitor source into `M-ProcessorSystemMonitor` branch.
 - Correction to the entry above: `sudo pmset -a displaysleep 0` is NOT a
   prevention. `displaysleep` was already 0 on every profile when checked, and the
   failure recurred anyway. Do not treat it as a fix.
+
+## 2026-11-06 — JS web graph delta clamp fix (Mac Studio M5 Max)
+Symptom: Web dashboard graph frozen — y-axis zoom broken by out-of-range delta values from unbounded *5 multiplier.
+Fix: JS canvas delta now matches PIL fix: clamp to ±10, scale by 2.5. Both graphs now consistent.
