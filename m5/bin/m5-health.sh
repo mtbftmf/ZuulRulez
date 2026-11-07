@@ -11,8 +11,12 @@ print "=== M5 Studio health  $(date '+%F %T %Z')  uptime:$(uptime | sed 's/.*up 
 rule
 
 print "[display]"
-system_profiler SPDisplaysDataType 2>/dev/null \
-  | grep -E 'Resolution:|Main Display:|Online:|Connection Type:' | sed 's/^  */  /'
+# Name every display: a Screen Sharing / ARD session adds "Screen Sharing Virtual Display", which reports 4K and
+# Online even while the physical monitor is dark, so resolution lines alone cannot say whether the monitor is up.
+sp=$(system_profiler SPDisplaysDataType 2>/dev/null)
+print -r -- "$sp" | awk '/^        [^ ].*:$/ { gsub(/^ +|:$/, ""); print "  display: " $0; next }
+  /Resolution:|Main Display:|Online:|Connection Type:/ { sub(/^ +/, "    "); print }'
+nphys=$(print -r -- "$sp" | awk '/^        [^ ].*:$/ && !/Virtual Display/ { n++ } END { print n + 0 }')
 hpd5=$(log show --last 5m --predicate 'eventMessage CONTAINS "IRQ_HPD"' --style compact 2>/dev/null | grep -c IRQ_HPD)
 print "  HPD last 5m: ${hpd5}"
 log show --last 5m --predicate 'eventMessage CONTAINS "IRQ_HPD"' --style compact 2>/dev/null \
@@ -20,6 +24,7 @@ log show --last 5m --predicate 'eventMessage CONTAINS "IRQ_HPD"' --style compact
 if (( hpd5 > 20 )); then print "  WARN: HPD climbing - dock suspect"
 elif (( hpd5 > 5 )); then print "  watch: more than handshake-level"
 else print "  ok: link quiet"; fi
+(( nphys )) || print "  note: no physical display listed (monitor off or unplugged, or a Screen Sharing / ARD session is connected: disconnect it to get the monitor back)"
 rule
 
 print "[audio]"
