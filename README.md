@@ -167,7 +167,7 @@ Token caps (v1.3.2): Auto builds its own request to the model server, so persona
 | `m5/launchd/` | LaunchAgent templates rendered by `install.sh --launchd`: `com.$USER.flash-up` (login script), `com.$USER.mlx-serve` (Flash server), `com.$USER.mlx-serve-gemma` (Gemma server), `com.$USER.m5-health-watch` (runs `m5-health-watch.sh` every 15 min, which also runs `m5-drift.sh`; logs only when a problem appears or clears), `com.$USER.m5-airplay-log` (runs `m5-airplay-log.sh` every minute; logs connections to the AirPlay Receiver ports) |
 | `m5/openwebui/` | Open WebUI functions (router, filter) |
 | `m5/config/` | Env templates; copy to `~/.config/` and fill in (never commit the filled-in file) |
-| `m5/docs/` | Host-specific notes, M5 Max only: system profile, Auto Router policy, mlx-serve switch plan, local HTTPS |
+| `m5/docs/` | Host-specific notes, M5 Max only: system profile, Auto Router policy, mlx-serve switch plan, local HTTPS, operations notes (pass criteria, launchd rules, drift harness, patch and two-chat discipline) |
 | `m5/tests/` | Fixed prompts for end-to-end comparisons (Test 1) and the 10-prompt quality set for `llm-compare.py` |
 | `gemma/` | Generic Gemma 4 builds for other M-series Studios (houdini account, friends-and-family hosting): installer, up/down scripts, rebuild scripts (preflight, Golden Gate upgrade, bootstrap, verify), runbook, Open WebUI memory text. See `gemma/README.md`; none of the M5 stack applies there |
 | `docs/images/` | Diagram and efficiency chart |
