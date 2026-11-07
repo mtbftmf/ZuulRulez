@@ -44,7 +44,15 @@ The System keychain covers every account on a Mac, guest accounts included.
 | A Mac (including the Studio) | Copy `root.crt` (scp or AirDrop), then `sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain caddy-root.crt` **in a session with a screen** (local or Screen Sharing/ARD). Over SSH it fails with "authorization was denied since no user interaction was possible", and `caddy trust` fails the same way. Check: `security verify-cert -c caddy-root.crt` |
 | Windows | Admin PowerShell: `certutil -addstore -f Root caddy-root.crt`, then quit Chrome/Edge completely |
 | iPhone / iPad | AirDrop the file, install the profile, then Settings → General → About → Certificate Trust Settings → on |
+| ChromeOS | Open `chrome://certificate-manager/localcerts/usercerts` (Local certificates → Installed by you), press **Import** under **Trusted Certificates** and pick `caddy-root.crt`. Do not use "Your certificates → Import and bind to user": that is for client certificates (a PKCS#12 file with a private key), not for a CA root. Check: the list shows `Caddy Local Authority - <year> ECC Root` with a fingerprint starting like the live root's |
+| Android | Needs a screen lock. Settings → Security and privacy → More security settings → Install from device storage → CA certificate → Install anyway → pick `caddy-root.crt`. Check: View security certificates → User lists the Caddy root. Chrome uses it; most other apps ignore user-installed roots unless they opt in. Android shows a "network may be monitored" notice afterwards: that is normal for user-installed roots |
 | Firefox (any OS) | Settings → Privacy & Security → Certificates → Import (own store) |
+
+A device passes only on a chat message that is answered through the HTTPS link, not on `curl`: Open WebUI
+chat is websocket-only and refuses an origin that is not in `CORS_ALLOW_ORIGIN`, so a reply proves the
+origin and the certificate chain together. Compare the fingerprint of what you installed with
+`openssl x509 -in root.crt -noout -fingerprint -sha256` on the Studio before trusting a copy: a stale root
+with the same name looks identical in every device's list.
 
 ## Two networks: names only work on the Studio's network
 
