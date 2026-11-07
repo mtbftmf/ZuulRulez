@@ -3,6 +3,7 @@
 Newest first. Entries before Oct 16, 2026 were reconstructed from chat history.
 
 ## 2026-11-07
+- Monitor daemon (`com.user.macmonitor`) logs moved from `/tmp/macmonitor.{log,err}` to `~/Library/Logs/macmonitor.{log,err}`; `m5/docs/CONTEXT.md` updated. Why: after the Nov 7 reboot both files held only that boot's lines, so earlier errors had been lost. Done on the Studio by `plutil -replace` on `/Library/LaunchDaemons/com.user.macmonitor.plist` (backup kept in `/usr/local/etc/launchd-backups`), then `bootout`, wait, `bootstrap`; the plist is not in the repo. The new paths were checked on the open files of the running process, and the drift baseline was re-snapshotted for the changed plist hash.
 - `m5/docs/m5-max-https.md`: ChromeOS and Android rows for trusting the Caddy root, and the pass criterion (a chat reply, not `curl`). Why: confirmed on a Chromebook and a Samsung phone today (Gemma and Flash both answered); the ChromeOS route is the Trusted Certificates import, not the client-certificate import. Both devices passed after trusting the live root.
 
 ## 2026-11-06

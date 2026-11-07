@@ -61,8 +61,9 @@ MLX_POLL_INTERVAL = 5
   - NOT in `~/Library/LaunchAgents/` — that directory has no mac-monitor plist
 - Python 3.14 (not Homebrew 3.15) — 3.15 lacks tkinter; any `nohup python3` failure in log is harmless
 - Check running PID: `pgrep -f mac_monitor`
-- Logs: `/tmp/macmonitor.log` (stdout) and `/tmp/macmonitor.err` (stderr)
-  - Verify: `sudo lsof -p $(pgrep -f mac_monitor) | grep '\.log'`
+- Logs: `~/Library/Logs/macmonitor.log` (stdout) and `~/Library/Logs/macmonitor.err` (stderr). They lived in `/tmp` until Nov 7, 2026 and a reboot emptied them (each held only that boot's lines); the daemon runs as the same user, so launchd creates them there and the directory must exist and be writable by that user or the job fails to spawn
+  - Verify: `sudo lsof -nP -p $(pgrep -f mac_monitor.py | head -1) | grep -E 'macmonitor\.(log|err)'`
+  - Expected noise: `.err` gets a repeating `NSXPCSharedListener … 'com.apple.view-bridge': Connection interrupted` line after every start (10 s apart at first, then less often); the monitor still answers on 9090. Cause not identified
 
 ### PIL graph — desktop
 - Throttled to every 3rd tick (15 s) to reduce CPU
@@ -146,11 +147,12 @@ curl -s http://127.0.0.1:9090/api | python3 -c "import json,sys; d=json.load(sys
 sudo lsof -nP -iTCP:9090 -sTCP:LISTEN
 
 # Logs (stdout / stderr)
-tail -20 /tmp/macmonitor.log
-tail -20 /tmp/macmonitor.err
+tail -20 ~/Library/Logs/macmonitor.log
+tail -20 ~/Library/Logs/macmonitor.err
 
-# Verify log path against reality
-sudo lsof -p $(pgrep -f mac_monitor) | grep '\.log'
+# Verify log path against reality (the plist says one thing, the open files say another)
+sudo launchctl print system/com.user.macmonitor | grep -E 'stdout path|stderr path'
+sudo lsof -nP -p $(pgrep -f mac_monitor.py | head -1) | grep -E 'macmonitor\.(log|err)'
 
 # Git — always print, never hard-code hashes
 git -C ~/ZuulRulez-monitor log --oneline -5
