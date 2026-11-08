@@ -70,7 +70,7 @@ STATE_FILE      = _env_path("MONITOR_STATE_FILE", "~/.local/bin/monitor_state.js
 MAX_HISTORY     = 25920
 GRAPH_WINDOW    = 36000     # 10h desktop window (web JS uses its own WS=129600)
 WEB_PORT        = 9090
-EFF_GRAPH_SCALE = 10.0      # 10 %/W = 100% of graph (GPU% / combined W; ~2 %/W at 100 tok/s, 50W)
+EFF_GRAPH_SCALE = 10.0      # 10 tok/s/W = 100% of graph; at 141 t/s / 49W = 2.9 tok/s/W = 29%
 MLX_SERVERS       = {      # row key -> mlx-serve base URL (both localhost-only)
     "g4":  os.environ.get("MONITOR_G4_URL",  "http://127.0.0.1:11235"),   # Gemma 4
     "fls": os.environ.get("MONITOR_FLS_URL", "http://127.0.0.1:11234"),   # Flash-Next
@@ -402,10 +402,12 @@ def _data_loop():
 
             gpu = _state.get("gpu_residency")
             mw  = _state.get("cpu_power_mw")
-            if gpu is not None and mw is not None and mw >= 10:
+            if mw is not None and mw >= 10:
                 now = time.time()
                 with _state_lock:
-                    _eff_history.append((now, gpu / (mw / 1000)))
+                    _last = _tps_history[-1] if _tps_history else None
+                    if _last is not None and now - _last[0] <= 30:
+                        _eff_history.append((now, _last[1] / (mw / 1000)))
                     _prune_history(_eff_history, now)
 
         except Exception as e:
@@ -547,8 +549,12 @@ def get_thermal():
     t = _state.get("thermal", "…"); return t, THERMAL_COLORS.get(t, "#ffffff")
 
 def get_efficiency():
-    g = _state.get("gpu_residency"); m = _state.get("cpu_power_mw")
-    return "…" if (g is None or m is None or m<10) else f"{g/(m/1000):.1f} %/W"
+    with _state_lock:
+        last = _tps_history[-1] if _tps_history else None
+    m = _state.get("cpu_power_mw")
+    if last is None or m is None or m < 10: return "…"
+    if time.time() - last[0] > 30: return "…"
+    return f"{last[1]/(m/1000):.1f} tok/s/W"
 
 
 # ── PIL graph renderer ────────────────────────────────────────────────────────
@@ -691,19 +697,19 @@ canvas { background:#0a0a0f;border:1px solid #ff6eb4;width:100%;height:160px;dis
   <span class="label" style="color:#ffd700">⚡</span><span class="value" style="color:#ffd700" id="v-PWR">…</span>
   <span class="label" style="color:#ff8c00">SWP</span><span class="value" style="color:#ff8c00" id="v-SWP">…</span>
   <span class="label" id="l-THM" style="color:#00e676">THM</span><span class="value" id="v-THM" style="color:#00e676">…</span>
-  <span class="label" style="color:#88aaff">EFF</span><span class="value" style="color:#88aaff" id="v-EFF">…</span>
+  <span class="label" style="color:#88aaff">T/W</span><span class="value" style="color:#88aaff" id="v-EFF">…</span>
   <span class="label" id="l-G4" style="color:#e040fb">g4 t/s</span><span class="value" id="v-G4" style="color:#e040fb">…</span>
   <span class="label" id="l-FLS" style="color:#c060e0">fls t/s</span><span class="value" id="v-FLS" style="color:#c060e0">…</span>
 </div>
 <div class="graph-wrap">
-  <div class="graph-title">MEM + GPU + SWP + MEM-Δ + EFF + TPS + PWR 10h</div>
+  <div class="graph-title">MEM + GPU + SWP + MEM-Δ + T/W + TPS + PWR 10h</div>
   <canvas id="graph"></canvas>
   <div class="legend">
     <span><span class="dot" style="background:#00e676"></span>MEM</span>
     <span><span class="dot" style="background:#ff6400"></span>SWP</span>
     <span><span class="dot" style="background:#b4b4bc"></span>GPU</span>
     <span><span class="dot" style="background:#aaaaaa"></span>MEM Δ</span>
-    <span><span class="dot" style="background:#5064b4"></span>EFF ÷10</span>
+    <span><span class="dot" style="background:#5064b4"></span>T/W ÷10</span>
     <span><span class="dot" style="background:#e040fb"></span>TPS ÷150</span>
     <span><span class="dot" style="background:#ffd700"></span>⚡ ÷80W</span>
   </div>
@@ -895,7 +901,7 @@ class MonitorApp:
         stats = [
             ("USE","USE"),("RAM","RAM"),("MEM","🧠"),("SSD","SSD"),
             ("GHz","GHz"),("GPU","GPU"),("PWR","⚡"),("SWP","SWP"),
-            ("THM","THM"),("EFF","EFF"),("G4","g4 t/s"),("FLS","fls t/s"),
+            ("THM","THM"),("EFF","T/W"),("G4","g4 t/s"),("FLS","fls t/s"),
         ]
         self.value_items = {}
         row_start_y = 38
@@ -920,7 +926,7 @@ class MonitorApp:
 
         self.canvas.create_rectangle(gx, gy, gx+gw, gy+gh,
             fill=BG_COLOR, outline=BORDER_COLOR, width=1)
-        self.canvas.create_text(gx+4, gy-9, text="MEM+GPU+SWP+Δ+EFF+TPS 10h",
+        self.canvas.create_text(gx+4, gy-9, text="MEM+GPU+SWP+Δ+T/W+TPS 10h",
             font=(FONT_FAMILY, 7, "bold"), fill=BORDER_COLOR, anchor="nw")
 
         # Single canvas image item for PIL graph
