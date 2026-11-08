@@ -48,7 +48,7 @@ def _env_path(name, default):
 _load_env_file()
 
 UPDATE_MS       = 5000
-PM_INTERVAL     = 15
+PM_INTERVAL     = 5
 TPS_GRAPH_SCALE = 150.0     # 150 t/s = 100% of graph (mlx-serve: g4 ~142, fls ~93)
 WIN_WIDTH       = 360
 WIN_HEIGHT      = 455       # 12 stat rows + taller graph
@@ -650,7 +650,7 @@ canvas { background:#0a0a0f;border:1px solid #ff6eb4;width:100%;height:160px;dis
   <span class="label" style="color:#ff6633">SSD</span><span class="value" style="color:#ff6633" id="v-SSD">…</span>
   <span class="label" style="color:#c084fc">GHz</span><span class="value" style="color:#c084fc" id="v-GHz">…</span>
   <span class="label" style="color:#b4b4bc">GPU</span><span class="value" style="color:#b4b4bc" id="v-GPU">…</span>
-  <span class="label" style="color:#ffd700">PWR</span><span class="value" style="color:#ffd700" id="v-PWR">…</span>
+  <span class="label" style="color:#ffd700">PKG</span><span class="value" style="color:#ffd700" id="v-PWR">…</span>
   <span class="label" style="color:#ff8c00">SWP</span><span class="value" style="color:#ff8c00" id="v-SWP">…</span>
   <span class="label" id="l-THM" style="color:#00e676">THM</span><span class="value" id="v-THM" style="color:#00e676">…</span>
   <span class="label" style="color:#88aaff">EFF</span><span class="value" style="color:#88aaff" id="v-EFF">…</span>
@@ -854,7 +854,7 @@ class MonitorApp:
 
         stats = [
             ("USE","USE"),("RAM","RAM"),("MEM","MEM"),("SSD","SSD"),
-            ("GHz","GHz"),("GPU","GPU"),("PWR","PWR"),("SWP","SWP"),
+            ("GHz","GHz"),("GPU","GPU"),("PWR","PKG"),("SWP","SWP"),
             ("THM","THM"),("EFF","EFF"),("G4","g4 t/s"),("FLS","fls t/s"),
         ]
         self.value_items = {}
