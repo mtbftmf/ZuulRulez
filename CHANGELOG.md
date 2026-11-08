@@ -148,3 +148,27 @@ Fix: JS canvas delta now matches PIL fix: clamp to ±10, scale by 2.5. Both grap
 - Added PEAKS_FILE (~/.local/share/macmonitor_peaks.json)
 - Stores _max_tps (per model) and _max_pwr_mw; loaded at startup, written only when a new peak is set
 - Peaks now survive daemon restarts and reboots
+
+## 2026-11-08 — Combined Power regex, scales, scoping bug, ⚡/🧠 labels
+- CPU_PWR_RE now matches "Combined Power (CPU + GPU + ANE)" instead of "CPU Power" — GPU dominates MLX inference at 46-53W; old regex read CPU-only ~5-7W (~10x underreport). Verified: ⚡ now shows 49-64W during generation.
+- Fix UnboundLocalError: 'now' used in _pwr_history.append() before assignment; renamed to _now_pwr. This crash caused powermetrics poller to skip vm_stat every cycle, leaving MEM/GPU/SWP/THM/T/W all stale.
+- _save_peaks() adds max_pwr_ts timestamp for audit trail.
+- collectV(pwr,PS) removed from JS y-axis zoom — power spikes were rescaling all percentage series.
+- PS=80000 (80W headroom; was 20000). EFF_GRAPH_SCALE=10.0 and JS ES=10 (was 500).
+- PWR/W label → ⚡ (single char, frees column width). MEM label → 🧠 (MEMBRAIN), value reverts to pressure min/cur/max string now that poller no longer crashes.
+- Commit: 5e4296f
+
+## 2026-11-08 — EFF (GPU%/W) replaced by T/W (tok/s per watt)
+- GPU residency pins at ~99.9% during any MLX load, making GPU%/W nearly constant and uninformative.
+- get_efficiency() now returns combined tok/s across all active MLX servers divided by combined SoC watts.
+- _eff_history populated from combined tps/W during active generation windows only (30s recency guard).
+- EFF_GRAPH_SCALE=10 unchanged; at 141 t/s / 49W = 2.9 tok/s/W = 29% of graph.
+- Labels updated: stat row T/W, legend T/W ÷10, graph title T/W.
+- Commit: fb51a48
+
+## 2026-11-08 — T/W combined tps, 5W power floor
+- T/W now sums decode_tps from all MLX servers active in last 30s instead of last _tps_history entry (single model, last-writer-wins).
+- Power floor raised 10mW → 5000mW: prevents nonsense readings when powermetrics samples at idle between bursts.
+- Verified: 3.2 tok/s/W at 39W with g4+fls both active (126 t/s combined); shows … at idle.
+- Peak PWR updated to 64.5W.
+- Commit: d942c3f
