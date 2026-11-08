@@ -137,6 +137,7 @@ _gpu_history = []
 _swp_history = []
 _eff_history = []
 _tps_history = []
+_pwr_history = []
 _state_lock  = threading.Lock()
 _max_tps     = {}          # lifetime peak decode t/s per model key since daemon start
 _max_pwr_mw  = None        # lifetime peak CPU power mW since daemon start
@@ -165,6 +166,7 @@ def _load_history():
                 _swp_history.extend((ts, v) for ts, v in data.get("swp_history", []) if ts > cutoff)
                 _eff_history.extend((ts, v) for ts, v in data.get("eff_history", []) if ts > cutoff)
                 _tps_history.extend((ts, v) for ts, v in data.get("tps_history", []) if ts > cutoff)
+                _pwr_history.extend((ts, v) for ts, v in data.get("pwr_history", []) if ts > cutoff)
                 _mem_min = data.get("min")
                 _mem_max = data.get("max")
             else:
@@ -179,7 +181,7 @@ def _save_history():
             json.dump({
                 "history":     _mem_history, "min": _mem_min, "max": _mem_max,
                 "gpu_history": _gpu_history, "swp_history": _swp_history,
-                "eff_history": _eff_history, "tps_history": _tps_history,
+                "eff_history": _eff_history, "tps_history": _tps_history, "pwr_history": _pwr_history,
             }, f)
     except Exception as e:
         log.warning("_save_history error: %s", e)
@@ -377,6 +379,8 @@ def _data_loop():
             if m:
                 _state["cpu_power_mw"] = float(m.group(1))
                 global _max_pwr_mw; _max_pwr_mw = max(_max_pwr_mw or 0, _state["cpu_power_mw"])
+                _pwr_history.append((now, _state["cpu_power_mw"]))
+                _prune_history(_pwr_history, now)
             m = CPU_PFREQ_RE.search(out) or CPU_FREQ_RE.search(out)
             if m: _state["cpu_ghz"] = float(m.group(1)) / 1000
             m = THERMAL_RE.search(out)
@@ -660,7 +664,7 @@ canvas { background:#0a0a0f;border:1px solid #ff6eb4;width:100%;height:160px;dis
   <span class="label" id="l-FLS" style="color:#c060e0">fls t/s</span><span class="value" id="v-FLS" style="color:#c060e0">…</span>
 </div>
 <div class="graph-wrap">
-  <div class="graph-title">MEM + GPU + SWP + MEM-Δ + EFF + TPS 10h</div>
+  <div class="graph-title">MEM + GPU + SWP + MEM-Δ + EFF + TPS + PWR 10h</div>
   <canvas id="graph"></canvas>
   <div class="legend">
     <span><span class="dot" style="background:#00e676"></span>MEM</span>
@@ -669,12 +673,13 @@ canvas { background:#0a0a0f;border:1px solid #ff6eb4;width:100%;height:160px;dis
     <span><span class="dot" style="background:#aaaaaa"></span>MEM Δ</span>
     <span><span class="dot" style="background:#5064b4"></span>EFF ÷500</span>
     <span><span class="dot" style="background:#e040fb"></span>TPS ÷150</span>
+    <span><span class="dot" style="background:#ffd700"></span>PWR ÷20W</span>
   </div>
 </div>
 <div class="updated" id="updated">Updated: …</div>
 <script>
-const WS=36000,PAD=30,ES=500,TS=150;
-function drawGraph(mem,gpu,swp,eff,tps){
+const WS=36000,PAD=30,ES=500,TS=150,PS=20000;
+function drawGraph(mem,gpu,swp,eff,tps,pwr){
   const cv=document.getElementById('graph'),ctx=cv.getContext('2d');
   cv.width=cv.offsetWidth;cv.height=160;
   const W=cv.width,H=cv.height,now=Date.now()/1000;
@@ -685,7 +690,7 @@ function drawGraph(mem,gpu,swp,eff,tps){
     if(!data)return;
     data.forEach(([t,v])=>{if(now-t<=WS)allV.push(sc?Math.min(100,(v/sc)*100):v);});
   }
-  collectV(mem);collectV(gpu);collectV(swp);collectV(eff,ES);collectV(tps,TS);
+  collectV(mem);collectV(gpu);collectV(swp);collectV(eff,ES);collectV(tps,TS);collectV(pwr,PS);
   let yLo=0,yHi=100;
   if(allV.length){
     yLo=Math.max(0,Math.min(...allV)-5);
@@ -723,6 +728,7 @@ function drawGraph(mem,gpu,swp,eff,tps){
   ctx.globalAlpha=0.5; pl(gpu,'#b4b4bc'); ctx.globalAlpha=1.0;
   pl(eff,'#5064b4',ES);
   pl(tps,'#e040fb',TS,60);
+  pl(pwr,'#ffd700',PS);
   pl(swp,'#ff6400');
   pl(mem,v=>v>95?'#ff4444':v>80?'#ffd600':'#00e676');
 }
@@ -743,7 +749,7 @@ function upd(d){
   document.getElementById('v-FLS').style.color=d.FLS_COLOR;
   document.getElementById('l-FLS').style.color=d.FLS_COLOR;
   document.getElementById('updated').textContent='Updated: '+d.updated;
-  drawGraph(d.mem_history,d.gpu_history,d.swp_history,d.eff_history,d.tps_history);
+  drawGraph(d.mem_history,d.gpu_history,d.swp_history,d.eff_history,d.tps_history,d.pwr_history);
 }
 async function poll(){
   try{const r=await fetch('/api');if(r.ok)upd(await r.json());}catch(e){}
@@ -751,7 +757,7 @@ async function poll(){
 }
 poll();
 window.addEventListener('resize',()=>fetch('/api').then(r=>r.json()).then(d=>
-  drawGraph(d.mem_history,d.gpu_history,d.swp_history,d.eff_history,d.tps_history)));
+  drawGraph(d.mem_history,d.gpu_history,d.swp_history,d.eff_history,d.tps_history,d.pwr_history)));
 </script></body></html>"""
 
 @flask_app.route("/")
@@ -759,7 +765,7 @@ def dashboard():
     mt, mc = get_memory_pressure(); tt, tc = get_thermal()
     with _state_lock:
         ms=list(_mem_history); gs=list(_gpu_history); ss=list(_swp_history)
-        es=list(_eff_history); ts=list(_tps_history)
+        es=list(_eff_history); ts=list(_tps_history); ps=list(_pwr_history)
     return render_template_string(HTML_TEMPLATE,
         stats={"USE":get_cpu_usage(),"RAM":get_ram_used_gb(),"MEM":mt,"MEM_COLOR":mc,
                "SSD":get_ssd_usage(),"GHz":get_cpu_freq_ghz(),"GPU":get_gpu_residency(),
@@ -767,7 +773,7 @@ def dashboard():
                "EFF":get_efficiency(),
                "G4":get_model_display("g4"), "G4_COLOR":get_model_color("g4", "G4"),
                "FLS":get_model_display("fls"), "FLS_COLOR":get_model_color("fls", "FLS")},
-        mem_history=ms,gpu_history=gs,swp_history=ss,eff_history=es,tps_history=ts,
+        mem_history=ms,gpu_history=gs,swp_history=ss,eff_history=es,tps_history=ts,pwr_history=ps,
         updated=time.strftime("%Y-%m-%d %H:%M:%S"))
 
 @flask_app.route("/api")
@@ -775,7 +781,7 @@ def api():
     mt, mc = get_memory_pressure(); tt, tc = get_thermal()
     with _state_lock:
         ms=list(_mem_history); gs=list(_gpu_history); ss=list(_swp_history)
-        es=list(_eff_history); ts=list(_tps_history)
+        es=list(_eff_history); ts=list(_tps_history); ps=list(_pwr_history)
     return jsonify({
         "USE":get_cpu_usage(),"RAM":get_ram_used_gb(),"MEM":mt,"MEM_COLOR":mc,
         "SSD":get_ssd_usage(),"GHz":get_cpu_freq_ghz(),"GPU":get_gpu_residency(),
@@ -784,7 +790,7 @@ def api():
         "G4":get_model_display("g4"), "G4_COLOR":get_model_color("g4", "G4"),
         "FLS":get_model_display("fls"), "FLS_COLOR":get_model_color("fls", "FLS"),
         "mem_history":ms,"gpu_history":gs,"swp_history":ss,
-        "eff_history":es,"tps_history":ts,
+        "eff_history":es,"tps_history":ts,"pwr_history":ps,
         "updated":time.strftime("%Y-%m-%d %H:%M:%S"),
     })
 
