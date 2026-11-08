@@ -138,3 +138,8 @@ Fix: JS canvas delta now matches PIL fix: clamp to ±10, scale by 2.5. Both grap
 ## 2026-11-08 — PKG label and 5s power sampling
 - Renamed PWR→PKG in web dashboard and desktop GUI (SoC package power: CPU+GPU+ANE, not wall power)
 - Reduced PM_INTERVAL 15s→5s for better peak resolution on _max_pwr_mw
+
+## 2026-11-08 — PKG power graph series
+- Added _pwr_history (5s samples) persisted to mem_history.json
+- Gold PWR÷20W line added to web dashboard graph and legend
+- Scale PS=20000 mW (20W = 100%) gives good headroom for M5 Max workloads
