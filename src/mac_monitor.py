@@ -402,12 +402,16 @@ def _data_loop():
 
             gpu = _state.get("gpu_residency")
             mw  = _state.get("cpu_power_mw")
-            if mw is not None and mw >= 10:
+            if mw is not None and mw >= 5000:
                 now = time.time()
                 with _state_lock:
-                    _last = _tps_history[-1] if _tps_history else None
-                    if _last is not None and now - _last[0] <= 30:
-                        _eff_history.append((now, _last[1] / (mw / 1000)))
+                    _mlx = _state.get("mlx", {})
+                    _combined = sum(
+                        st["decode_tps"] for st in _mlx.values()
+                        if st.get("decode_tps") and now - st.get("decode_ts", 0) <= 30
+                    )
+                    if _combined > 0:
+                        _eff_history.append((now, _combined / (mw / 1000)))
                     _prune_history(_eff_history, now)
 
         except Exception as e:
@@ -549,12 +553,16 @@ def get_thermal():
     t = _state.get("thermal", "…"); return t, THERMAL_COLORS.get(t, "#ffffff")
 
 def get_efficiency():
-    with _state_lock:
-        last = _tps_history[-1] if _tps_history else None
+    now = time.time()
     m = _state.get("cpu_power_mw")
-    if last is None or m is None or m < 10: return "…"
-    if time.time() - last[0] > 30: return "…"
-    return f"{last[1]/(m/1000):.1f} tok/s/W"
+    if m is None or m < 5000: return "…"
+    mlx = _state.get("mlx", {})
+    total_tps = sum(
+        st["decode_tps"] for st in mlx.values()
+        if st.get("decode_tps") and now - st.get("decode_ts", 0) <= 30
+    )
+    if total_tps == 0: return "…"
+    return f"{total_tps/(m/1000):.1f} tok/s/W"
 
 
 # ── PIL graph renderer ────────────────────────────────────────────────────────
