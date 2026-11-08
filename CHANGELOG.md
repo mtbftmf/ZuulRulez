@@ -127,3 +127,10 @@ Imported working monitor source into `M-ProcessorSystemMonitor` branch.
 ## 2026-11-06 — JS web graph delta clamp fix (Mac Studio M5 Max)
 Symptom: Web dashboard graph frozen — y-axis zoom broken by out-of-range delta values from unbounded *5 multiplier.
 Fix: JS canvas delta now matches PIL fix: clamp to ±10, scale by 2.5. Both graphs now consistent.
+
+## 2026-11-08 — Lifetime-max display for t/s and power
+- Added `_max_tps` dict and `_max_pwr_mw` float globals tracking peak values since daemon start
+- Web dashboard shows full form: `117.3 (max 117)` / `629 mW (max 7293 mW)`
+- Desktop GUI shows compact form: `117.3 (117)` / `629 (7293) mW`
+- `get_model_display()` and `get_cpu_power()` accept `compact=False` param
+- Commit: 70bd88f
