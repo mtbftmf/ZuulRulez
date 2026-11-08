@@ -60,7 +60,7 @@ PM_INTERVAL       = 5       # powermetrics sample interval (seconds)
 - During MLX inference GPU dominates at 46–53W; CPU-only is ~5–7W. Regex MUST match Combined Power.
 - Typical values: 0.1–0.3 W idle, 39–64 W during heavy MLX generation
 - Display: web `49.0 W (max 64.5 W)`; desktop compact `49.0 (64.5) W`
-- Graph: gold line, PS=80000 mW (80W = 100%), legend `⚡ ÷80W`
+- Graph: gold line, PS=100000 mW (100W = 100%), legend `⚡ ÷100W`
 - `_pwr_history` populated every 5s, persisted in `mem_history.json`
 
 ### 🧠 MEMBRAIN row
@@ -81,7 +81,7 @@ PM_INTERVAL       = 5       # powermetrics sample interval (seconds)
 - `_max_tps` (dict, keyed by model) and `_max_pwr_mw` (float) tracked and persisted
 - File: `~/.local/share/macmonitor_peaks.json` (includes `max_pwr_ts` timestamp)
 - Loaded at startup via `_load_peaks()`; written via `_save_peaks()` only on new peak
-- Verified peaks: g4 max 111 t/s, fls max 81 t/s, PWR max 64.5W
+- Verified peaks: g4 max 111 t/s, fls max 81 t/s, PWR max 78.4W
 
 ### Graph series (web dashboard)
 | Series | Color | Scale | Notes |
@@ -92,7 +92,7 @@ PM_INTERVAL       = 5       # powermetrics sample interval (seconds)
 | MEM Δ | grey/white | centered 50% | clamped ±10 GB |
 | T/W | blue | ÷10 | tok/s/W, gaps at idle |
 | TPS | violet | ÷150 | tok/s, 60s gap break |
-| ⚡ | gold | ÷80W (PS=80000 mW) | SoC package watts |
+| ⚡ | gold | ÷100W (PS=100000 mW) | SoC package watts |
 
 **Important:** `collectV(pwr,PS)` is intentionally NOT in y-axis zoom — power spikes would rescale % series.
 
@@ -153,13 +153,21 @@ for(let i=6;i<mem.length;i++){const dd=mem[i][1]-mem[i-6][1],dc=Math.min(10,Math
 |---|---|---|
 | Idle power | 0.1–0.3 W | Combined SoC (CPU+GPU+ANE) |
 | Sustained generation | ~49 W | Both models active |
-| Peak (5s average) | 64.5 W | Recorded with timestamp |
+| Peak (5s average) | 78.4 W | Recorded with timestamp |
 | T/W at load | ~3.2 tok/s/W | g4+fls combined, 126 t/s / 39W |
 | RAM at load | 102.7/128 GB | No swap |
 | Thermal | Nominal | No throttling observed |
 
-Post ¶4: *"One box, one cable, no rack: 49 W sustained through generation, 64 W peak in five-second samples — under a desk, not in a closet."*
+Post ¶4: *"One box, one cable, no rack: 49 W sustained through generation, 78 W peak in five-second samples — under a desk, not in a closet."*
 Say "combined SoC package (CPU+GPU+ANE)" if asked; never "the box". State "five-second samples" for defensibility.
+
+### 2026-11-08 — T/W window fix + current-power gate + PS=100000 (0eb4881)
+- T/W window mismatch: tps window was 30s but power was instantaneous 5s sample.
+  Fixed: `get_efficiency()` and `_eff_history` both average `_pwr_history[-6:]` (30s).
+- Added `if m < 5000: return "…"` gate on current instantaneous power — prevents
+  stale 30s window from showing non-zero T/W at idle after generation ends.
+- PS raised 80000→100000 (old 80W was 98% utilised at 78.4W peak).
+- Verified: 3.2 tok/s/W at 32.5W; `…` at idle. Peak: 78.4W.
 
 ---
 
