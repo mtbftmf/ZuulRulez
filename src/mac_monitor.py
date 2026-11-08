@@ -138,6 +138,8 @@ _swp_history = []
 _eff_history = []
 _tps_history = []
 _state_lock  = threading.Lock()
+_max_tps     = {}          # lifetime peak decode t/s per model key since daemon start
+_max_pwr_mw  = None        # lifetime peak CPU power mW since daemon start
 
 
 # ── History helpers ───────────────────────────────────────────────────────────
@@ -271,6 +273,7 @@ def _mlx_poll_one(key, base_url, prev, now):
         if d_out > 0 and d_dec > 0:
             tps = d_out / d_dec
             st["decode_tps"], st["decode_ts"] = tps, now
+            _max_tps[key] = max(_max_tps.get(key, 0), tps)
             with _state_lock:
                 _tps_history.append((now, tps))
                 _prune_history(_tps_history, now)
@@ -296,17 +299,21 @@ def _mlx_metrics_loop():
         time.sleep(MLX_POLL_INTERVAL)
 
 
-def get_model_display(key):
+def get_model_display(key, compact=False):
     """t/s text for a model row: live rate with "~" while generating, else the last
-    finished request's decode rate (kept 1 h), else "—"."""
+    finished request's decode rate (kept 1 h), else "—". Appends lifetime-max.
+    compact=True: "149.9 (142)" — for tkinter GUI where space is tight.
+    compact=False: "149.9 (max 142)" — for web dashboard."""
     st  = _state.get("mlx", {}).get(key, {})
     now = time.time()
     if not st.get("up"):
         return "—"
+    mx = _max_tps.get(key)
+    max_str = f" ({mx:.0f})" if (mx and compact) else f" (max {mx:.0f})" if mx else ""
     if st.get("running", 0) > 0 and st.get("live_tps") and now - st.get("live_ts", 0) < MLX_POLL_INTERVAL * 3:
-        return f"{st['live_tps']:.1f}~"
+        return f"{st['live_tps']:.1f}~{max_str}"
     if st.get("decode_tps") and now - st.get("decode_ts", 0) < 3600:
-        return f"{st['decode_tps']:.1f}"
+        return f"{st['decode_tps']:.1f}{max_str}"
     return "—"
 
 
@@ -367,7 +374,9 @@ def _data_loop():
             m = GPU_RE.search(out)
             if m: _state["gpu_residency"] = float(m.group(1))
             m = CPU_PWR_RE.search(out)
-            if m: _state["cpu_power_mw"] = float(m.group(1))
+            if m:
+                _state["cpu_power_mw"] = float(m.group(1))
+                global _max_pwr_mw; _max_pwr_mw = max(_max_pwr_mw or 0, _state["cpu_power_mw"])
             m = CPU_PFREQ_RE.search(out) or CPU_FREQ_RE.search(out)
             if m: _state["cpu_ghz"] = float(m.group(1)) / 1000
             m = THERMAL_RE.search(out)
@@ -481,8 +490,16 @@ def get_cpu_freq_ghz():
 def get_gpu_residency():
     p = _state.get("gpu_residency"); return f"{p:.1f}%" if p is not None else "…"
 
-def get_cpu_power():
-    m = _state.get("cpu_power_mw"); return f"{m:.0f} mW" if m is not None else "…"
+def get_cpu_power(compact=False):
+    """CPU power text. compact=True: "5268 (8240) mW" for tkinter GUI.
+    compact=False: "5268 mW (max 8240 mW)" for web dashboard."""
+    m = _state.get("cpu_power_mw")
+    if m is None: return "…"
+    mx = _max_pwr_mw
+    if mx:
+        max_str = f" ({mx:.0f}) mW" if compact else f" (max {mx:.0f} mW)"
+        return f"{m:.0f}{max_str}" if compact else f"{m:.0f} mW{max_str}"
+    return f"{m:.0f} mW"
 
 def get_swap_used():
     with _state_lock: u = _state.get("swp_used_gb"); t = _state.get("swp_total_gb")
@@ -960,15 +977,15 @@ class MonitorApp:
             self.canvas.itemconfig(self.value_items["SSD"], text=get_ssd_usage())
             self.canvas.itemconfig(self.value_items["GHz"], text=get_cpu_freq_ghz())
             self.canvas.itemconfig(self.value_items["GPU"], text=gpu_txt)
-            self.canvas.itemconfig(self.value_items["PWR"], text=get_cpu_power())
+            self.canvas.itemconfig(self.value_items["PWR"], text=get_cpu_power(compact=True))
             self.canvas.itemconfig(self.value_items["SWP"], text=swp_txt)
             self.canvas.itemconfig(self.value_items["MEM"], text=pressure, fill=mem_color)
             self.canvas.itemconfig(self.value_items["THM"], text=thm_txt, fill=thm_color)
             self.canvas.itemconfig(self.value_items["EFF"], text=get_efficiency())
             g4_color  = get_model_color("g4", "G4")
             fls_color = get_model_color("fls", "FLS")
-            self.canvas.itemconfig(self.value_items["G4"],  text=get_model_display("g4"),  fill=g4_color)
-            self.canvas.itemconfig(self.value_items["FLS"], text=get_model_display("fls"), fill=fls_color)
+            self.canvas.itemconfig(self.value_items["G4"],  text=get_model_display("g4", compact=True),  fill=g4_color)
+            self.canvas.itemconfig(self.value_items["FLS"], text=get_model_display("fls", compact=True), fill=fls_color)
             for item_id in self.canvas.find_withtag("g4_label"):
                 self.canvas.itemconfig(item_id, fill=g4_color)
             for item_id in self.canvas.find_withtag("fls_label"):
@@ -981,9 +998,9 @@ class MonitorApp:
             self._mini_mem.config(text=f"MEM:{mem_pct}", fg=gui_mem_color)
             self._mini_gpu.config(text=f"GPU:{gpu_txt}")
             self._mini_swp.config(text=f"SWP:{swp_txt}")
-            self._mini_g4.config(text=f"g4:{get_model_display('g4')}",
+            self._mini_g4.config(text=f"g4:{get_model_display('g4', compact=True)}",
                                  fg=get_model_color('g4', 'G4'))
-            self._mini_fls.config(text=f"fls:{get_model_display('fls')}",
+            self._mini_fls.config(text=f"fls:{get_model_display('fls', compact=True)}",
                                   fg=get_model_color('fls', 'FLS'))
 
         self._save_counter += 1
