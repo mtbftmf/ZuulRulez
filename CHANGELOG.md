@@ -143,3 +143,8 @@ Fix: JS canvas delta now matches PIL fix: clamp to ±10, scale by 2.5. Both grap
 - Added _pwr_history (5s samples) persisted to mem_history.json
 - Gold PWR÷20W line added to web dashboard graph and legend
 - Scale PS=20000 mW (20W = 100%) gives good headroom for M5 Max workloads
+
+## 2026-11-08 — Persist lifetime-max peaks across restarts
+- Added PEAKS_FILE (~/.local/share/macmonitor_peaks.json)
+- Stores _max_tps (per model) and _max_pwr_mw; loaded at startup, written only when a new peak is set
+- Peaks now survive daemon restarts and reboots
