@@ -55,11 +55,15 @@ PM_INTERVAL       = 5       # powermetrics sample interval (seconds) — was 15
 - `ngram_warm_bytes: 0` in mlx-serve metrics indicates evicted model
 - Peak observed: ~100 GB during simultaneous heavy use (no swap)
 
-### Power label
-- Stat row is labelled **PKG** (not PWR) — reports SoC package power (CPU+GPU+ANE combined)
-- Source: `powermetrics` `Combined Power` field via `CPU_PWR_RE` regex
+### Power label (PWR/W)
+- Stat row labelled **PWR/W** — reports SoC package power (CPU+GPU+ANE combined), displayed in watts
+- Source: `powermetrics` `Combined Power` field via `CPU_PWR_RE` regex (reports mW, divided by 1000 for display)
 - This is **not** wall power (excludes unified memory, SSD, PSU conversion loss)
+- Typical values: 0.1–0.3 W idle, 7–15 W under heavy LLM load on M5 Max
 - For wall power: use a smart plug or UPS that reports load
+- Display format — web: `0.1 W (max 7.5 W)`; desktop compact: `0.1 (7.5) W`
+- Graph series: gold line, scale PS=20000 mW (20 W = 100%), legend `PWR ÷20W`
+- `_pwr_history` list populated every 5s, persisted in `mem_history.json`
 
 ### Network
 - Flask listens on `host="127.0.0.1"`, port `9090`
@@ -80,10 +84,21 @@ PM_INTERVAL       = 5       # powermetrics sample interval (seconds) — was 15
 
 ### Lifetime-max display
 - `_max_tps` dict and `_max_pwr_mw` float track peak values since daemon start (reset on restart)
-- Web dashboard (full form): `117.3 (max 117)` / `629 mW (max 7293 mW)`
-- Desktop GUI (compact form): `117.3 (117)` / `629 (7293) mW`
+- Web dashboard (full form): `117.3 (max 117)` / `0.1 W (max 7.5 W)`
+- Desktop GUI (compact form): `117.3 (117)` / `0.1 (7.5) W`
 - `get_model_display(key, compact=False)` and `get_cpu_power(compact=False)` — GUI call sites pass `compact=True`
 - PKG max is a 5s-averaged peak, not a 1s burst peak
+
+### Graph series (web dashboard)
+| Series | Color | Scale | Notes |
+|---|---|---|---|
+| MEM | green→yellow→red | 0–100% | threshold coloring |
+| SWP | orange | 0–100% | |
+| GPU | grey | 0–100% | 50% alpha |
+| MEM Δ | grey/white | centered 50% | clamped ±10 GB |
+| EFF | blue | ÷500 | %/W efficiency |
+| TPS | violet | ÷150 | tok/s, 60s gap break |
+| PWR | gold | ÷20W (PS=20000 mW) | SoC package watts |
 
 ### PIL graph — desktop
 - Throttled to every 3rd tick (15 s) to reduce CPU
@@ -115,14 +130,21 @@ PM_INTERVAL       = 5       # powermetrics sample interval (seconds) — was 15
   ```
 - **Lesson:** PIL graph (desktop) and JS canvas graph (web) are independent renderers — fixes must be applied to both.
 
-### 2026-11-08 — Lifetime-max display for t/s and PKG power
+### 2026-11-08 — Lifetime-max display for t/s and power
 - Added `_max_tps` dict and `_max_pwr_mw` float globals
 - Web dashboard: full `(max N)` suffix; desktop GUI: compact `(N)` suffix
 - `get_model_display()` and `get_cpu_power()` accept `compact=False` param
 
-### 2026-11-08 — PKG label and 5s power sampling
-- Renamed PWR→PKG in web dashboard and desktop GUI (SoC package power, not wall power)
-- Reduced `PM_INTERVAL` 15s→5s for better peak resolution
+### 2026-11-08 — Power display in watts, PWR/W label
+- `get_cpu_power()` now divides mW by 1000, displays to 1 decimal place in W
+- Label changed to `PWR/W` (fits tkinter column without overlap)
+- Verified with powermetrics: 0.1–0.3 W idle, spikes to ~1.5 W during light load
+
+### 2026-11-08 — PKG power graph series
+- Added `_pwr_history` (5s samples) persisted to `mem_history.json`
+- Gold `PWR÷20W` line added to web dashboard graph and legend
+- Scale PS=20000 mW (20 W = 100%) gives headroom for M5 Max workloads
+- `pwr_history` exposed via `/api` and dashboard template
 
 ---
 
@@ -150,6 +172,7 @@ Separate file for the headless M1 server shipped to CA friend.
   Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
   Claude-Session: https://claude.ai/code/session_01FrXUfoq33ugWc7b3mZ2nmq
   ```
+- **Never send shell heredocs as downloads** — use Python script downloads for multi-edit patches instead
 
 ---
 
@@ -176,6 +199,9 @@ tail -20 ~/Library/Logs/macmonitor.err
 # Verify log path against reality
 sudo launchctl print system/com.user.macmonitor | grep -E 'stdout path|stderr path'
 sudo lsof -nP -p $(pgrep -f mac_monitor.py | head -1) | grep -E 'macmonitor\.(log|err)'
+
+# Verify powermetrics is reading correctly (run during a generation)
+sudo powermetrics -n 5 -i 2000 --samplers cpu_power | grep -i "combined power"
 
 # Git — always print, never hard-code hashes
 git -C ~/ZuulRulez-monitor log --oneline -5
