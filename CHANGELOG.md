@@ -172,3 +172,24 @@ Fix: JS canvas delta now matches PIL fix: clamp to ±10, scale by 2.5. Both grap
 - Verified: 3.2 tok/s/W at 39W with g4+fls both active (126 t/s combined); shows … at idle.
 - Peak PWR updated to 64.5W.
 - Commit: d942c3f
+
+## 0eb4881 — T/W window fix, current-power gate, PS=100000 (2026-11-08)
+
+**Problem 1 — T/W window mismatch (Flash's catch):**
+`get_efficiency()` summed tps for models active in last 30s but divided by
+the *instantaneous* 5s power sample. A model that finished generating 29s ago
+still contributed tokens but zero watts → inflated T/W.
+Fix: average `_pwr_history` over the same 30s window (`[-6:]` to cap at 6
+samples × 5s). Same fix applied to `_eff_history` append.
+
+**Problem 2 — stale T/W after generation ended:**
+30s window average lagged real-time; T/W showed 1.9 tok/s/W at 0.6W idle.
+Fix: added `if m < 5000: return "…"` gate on current instantaneous power
+(`_state["cpu_power_mw"]`).
+
+**Problem 3 — PS=80000 almost clipping:**
+Peak of 78.4W = 98% of 80W scale.
+Fix: PS raised to 100000 (100W); legend updated to `⚡ ÷100W`.
+
+**Verified:** T/W: 3.2 tok/s/W at 32.5W during generation; `…` at idle/post-gen.
+Peak PWR: 78.4W (new high, 5s average).
