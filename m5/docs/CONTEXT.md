@@ -262,7 +262,7 @@ Always state GiB when citing du output; use decimal GB for index byte sums.
 
 | Store | Collections | Vectors | Notes |
 |---|---|---|---|
-| Knowledge base (file-*) | 56 | 8,626 | Uploaded documents; real index |
+| Knowledge base (file-*) | 62 | 8,736 | Uploaded documents; real index |
 | Memory (user-memory-*) | 1 | 11 | Extracted facts from conversations |
 
 Source: `~/open-webui-data/vector_db/chroma.sqlite3` join query
