@@ -411,7 +411,9 @@ def _data_loop():
                         if st.get("decode_tps") and now - st.get("decode_ts", 0) <= 30
                     )
                     if _combined > 0:
-                        _eff_history.append((now, _combined / (mw / 1000)))
+                        _win = [w for t, w in _pwr_history if now - t <= 30][-6:]
+                        _avg_w = sum(_win) / len(_win) / 1000 if _win else mw / 1000
+                        _eff_history.append((now, _combined / _avg_w))
                     _prune_history(_eff_history, now)
 
         except Exception as e:
@@ -554,15 +556,19 @@ def get_thermal():
 
 def get_efficiency():
     now = time.time()
-    m = _state.get("cpu_power_mw")
-    if m is None or m < 5000: return "…"
+    m = _state.get("cpu_power_mw") or 0
+    if m < 5000: return "…"  # current power must be at load
+    with _state_lock:
+        window = [w for t, w in _pwr_history if now - t <= 30][-6:]
+    watts = sum(window) / len(window) / 1000 if window else 0
+    if watts < 5: return "…"
     mlx = _state.get("mlx", {})
     total_tps = sum(
         st["decode_tps"] for st in mlx.values()
         if st.get("decode_tps") and now - st.get("decode_ts", 0) <= 30
     )
     if total_tps == 0: return "…"
-    return f"{total_tps/(m/1000):.1f} tok/s/W"
+    return f"{total_tps/watts:.1f} tok/s/W"
 
 
 # ── PIL graph renderer ────────────────────────────────────────────────────────
@@ -719,12 +725,12 @@ canvas { background:#0a0a0f;border:1px solid #ff6eb4;width:100%;height:160px;dis
     <span><span class="dot" style="background:#aaaaaa"></span>MEM Δ</span>
     <span><span class="dot" style="background:#5064b4"></span>T/W ÷10</span>
     <span><span class="dot" style="background:#e040fb"></span>TPS ÷150</span>
-    <span><span class="dot" style="background:#ffd700"></span>⚡ ÷80W</span>
+    <span><span class="dot" style="background:#ffd700"></span>⚡ ÷100W</span>
   </div>
 </div>
 <div class="updated" id="updated">Updated: …</div>
 <script>
-const WS=36000,PAD=30,ES=10,TS=150,PS=80000;
+const WS=36000,PAD=30,ES=10,TS=150,PS=100000;
 function drawGraph(mem,gpu,swp,eff,tps,pwr){
   const cv=document.getElementById('graph'),ctx=cv.getContext('2d');
   cv.width=cv.offsetWidth;cv.height=160;
