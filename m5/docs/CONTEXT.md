@@ -65,6 +65,26 @@ PM_INTERVAL       = 5       # powermetrics sample interval (seconds) — was 15
 - Graph series: gold line, scale PS=20000 mW (20 W = 100%), legend `PWR ÷20W`
 - `_pwr_history` list populated every 5s, persisted in `mem_history.json`
 
+### Lifetime-max peaks
+- `_max_tps` (dict, keyed by model) and `_max_pwr_mw` (float) track session peaks
+- **Persisted across restarts** to `~/.local/share/macmonitor_peaks.json`
+- Loaded at startup via `_load_peaks()`; written via `_save_peaks()` only when a new peak is set (not every sample)
+- `get_model_display(key, compact=False)` and `get_cpu_power(compact=False)` — GUI call sites pass `compact=True`
+- PKG max is a 5s-averaged peak, not a 1s instantaneous burst
+- Web dashboard (full): `117.3 (max 117)` / `0.1 W (max 7.5 W)`
+- Desktop GUI (compact): `117.3 (117)` / `0.1 (7.5) W`
+
+### Graph series (web dashboard)
+| Series | Color | Scale | Notes |
+|---|---|---|---|
+| MEM | green→yellow→red | 0–100% | threshold coloring |
+| SWP | orange | 0–100% | |
+| GPU | grey | 0–100% | 50% alpha |
+| MEM Δ | grey/white | centered 50% | clamped ±10 GB |
+| EFF | blue | ÷500 | %/W efficiency |
+| TPS | violet | ÷150 | tok/s, 60s gap break |
+| PWR | gold | ÷20W (PS=20000 mW) | SoC package watts — raise PS if gold line clips |
+
 ### Network
 - Flask listens on `host="127.0.0.1"`, port `9090`
 - Caddy HTTPS proxy on port `9443` (external access)
@@ -81,24 +101,6 @@ PM_INTERVAL       = 5       # powermetrics sample interval (seconds) — was 15
 - Logs: `~/Library/Logs/macmonitor.log` (stdout) and `~/Library/Logs/macmonitor.err` (stderr).
   - Verify: `sudo lsof -nP -p $(pgrep -f mac_monitor.py | head -1) | grep -E 'macmonitor\.(log|err)'`
   - Expected noise: `.err` gets a repeating `NSXPCSharedListener … 'com.apple.view-bridge': Connection interrupted` line after every start; monitor still answers on 9090
-
-### Lifetime-max display
-- `_max_tps` dict and `_max_pwr_mw` float track peak values since daemon start (reset on restart)
-- Web dashboard (full form): `117.3 (max 117)` / `0.1 W (max 7.5 W)`
-- Desktop GUI (compact form): `117.3 (117)` / `0.1 (7.5) W`
-- `get_model_display(key, compact=False)` and `get_cpu_power(compact=False)` — GUI call sites pass `compact=True`
-- PKG max is a 5s-averaged peak, not a 1s burst peak
-
-### Graph series (web dashboard)
-| Series | Color | Scale | Notes |
-|---|---|---|---|
-| MEM | green→yellow→red | 0–100% | threshold coloring |
-| SWP | orange | 0–100% | |
-| GPU | grey | 0–100% | 50% alpha |
-| MEM Δ | grey/white | centered 50% | clamped ±10 GB |
-| EFF | blue | ÷500 | %/W efficiency |
-| TPS | violet | ÷150 | tok/s, 60s gap break |
-| PWR | gold | ÷20W (PS=20000 mW) | SoC package watts |
 
 ### PIL graph — desktop
 - Throttled to every 3rd tick (15 s) to reduce CPU
@@ -144,7 +146,20 @@ PM_INTERVAL       = 5       # powermetrics sample interval (seconds) — was 15
 - Added `_pwr_history` (5s samples) persisted to `mem_history.json`
 - Gold `PWR÷20W` line added to web dashboard graph and legend
 - Scale PS=20000 mW (20 W = 100%) gives headroom for M5 Max workloads
-- `pwr_history` exposed via `/api` and dashboard template
+
+### 2026-11-08 — Persist lifetime-max peaks across restarts
+- Added `PEAKS_FILE` (`~/.local/share/macmonitor_peaks.json`)
+- `_load_peaks()` called at startup; `_save_peaks()` called only when a new peak is set
+- Peaks survive daemon restarts and reboots — required before publishing wattage claims
+
+---
+
+## Pending (ordered by what each unblocks)
+
+1. **Run measurement window** — cold 12K persona prefill + 24K deep-work generation, both models resident at different points. Check `~/.local/share/macmonitor_peaks.json` after. Run `sudo powermetrics -i 5000 --show-power | tee /tmp/pm_peak.log` in parallel for ground truth.
+2. **Thermal pressure history** — log `_thm_history` alongside other series; enables "no throttling across 18h" claim. Currently only displays `Nominal`, not recorded over time.
+3. **Wh/1k tokens** — offline calc: integrate `_pwr_history` over a known window, divide by tokens from `/metrics.json`. No daemon change needed — data already being collected.
+4. **PS scale check** — if cold prefill causes gold PWR line to clip at top of graph, raise `PS` from 20000.
 
 ---
 
@@ -167,12 +182,12 @@ Separate file for the headless M1 server shipped to CA friend.
 - Each change: one commit + one CHANGELOG line (what changed, why, measured result if any)
 - Shell commands pasted to zsh: no `#` comments inline, no `<placeholder>` text, don't pipe JSON through `echo`
 - Heredoc commit messages via `git commit -m "$(cat <<'EOF' ... EOF)"`
+- **Multi-edit patches: always deliver as a downloadable Python script, never as shell heredocs** — heredocs containing `EOF` in content will terminate early
 - Attribution lines at end of every commit message:
   ```
   Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
   Claude-Session: https://claude.ai/code/session_01FrXUfoq33ugWc7b3mZ2nmq
   ```
-- **Never send shell heredocs as downloads** — use Python script downloads for multi-edit patches instead
 
 ---
 
@@ -188,6 +203,9 @@ sudo kill $(pgrep -f mac_monitor)
 
 # Is API healthy?
 curl -s http://127.0.0.1:9090/api | python3 -c "import json,sys; d=json.load(sys.stdin); print('OK, keys:', len(d))"
+
+# Check persisted peaks
+cat ~/.local/share/macmonitor_peaks.json
 
 # Port bind — confirm loopback only
 sudo lsof -nP -iTCP:9090 -sTCP:LISTEN
