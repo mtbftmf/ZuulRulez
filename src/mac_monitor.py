@@ -491,15 +491,17 @@ def get_gpu_residency():
     p = _state.get("gpu_residency"); return f"{p:.1f}%" if p is not None else "…"
 
 def get_cpu_power(compact=False):
-    """CPU power text. compact=True: "5268 (8240) mW" for tkinter GUI.
-    compact=False: "5268 mW (max 8240 mW)" for web dashboard."""
+    """CPU power text. compact=True: "1.3 (7.5) W" for tkinter GUI.
+    compact=False: "1.3 W (max 7.5 W)" for web dashboard."""
     m = _state.get("cpu_power_mw")
     if m is None: return "…"
+    w = m / 1000
     mx = _max_pwr_mw
     if mx:
-        max_str = f" ({mx:.0f}) mW" if compact else f" (max {mx:.0f} mW)"
-        return f"{m:.0f}{max_str}" if compact else f"{m:.0f} mW{max_str}"
-    return f"{m:.0f} mW"
+        mxw = mx / 1000
+        max_str = f" ({mxw:.1f}) W" if compact else f" (max {mxw:.1f} W)"
+        return f"{w:.1f}{max_str}" if compact else f"{w:.1f} W{max_str}"
+    return f"{w:.1f} W"
 
 def get_swap_used():
     with _state_lock: u = _state.get("swp_used_gb"); t = _state.get("swp_total_gb")
@@ -650,7 +652,7 @@ canvas { background:#0a0a0f;border:1px solid #ff6eb4;width:100%;height:160px;dis
   <span class="label" style="color:#ff6633">SSD</span><span class="value" style="color:#ff6633" id="v-SSD">…</span>
   <span class="label" style="color:#c084fc">GHz</span><span class="value" style="color:#c084fc" id="v-GHz">…</span>
   <span class="label" style="color:#b4b4bc">GPU</span><span class="value" style="color:#b4b4bc" id="v-GPU">…</span>
-  <span class="label" style="color:#ffd700">PKG</span><span class="value" style="color:#ffd700" id="v-PWR">…</span>
+  <span class="label" style="color:#ffd700">PWR/W</span><span class="value" style="color:#ffd700" id="v-PWR">…</span>
   <span class="label" style="color:#ff8c00">SWP</span><span class="value" style="color:#ff8c00" id="v-SWP">…</span>
   <span class="label" id="l-THM" style="color:#00e676">THM</span><span class="value" id="v-THM" style="color:#00e676">…</span>
   <span class="label" style="color:#88aaff">EFF</span><span class="value" style="color:#88aaff" id="v-EFF">…</span>
@@ -854,7 +856,7 @@ class MonitorApp:
 
         stats = [
             ("USE","USE"),("RAM","RAM"),("MEM","MEM"),("SSD","SSD"),
-            ("GHz","GHz"),("GPU","GPU"),("PWR","PKG"),("SWP","SWP"),
+            ("GHz","GHz"),("GPU","GPU"),("PWR","PWR/W"),("SWP","SWP"),
             ("THM","THM"),("EFF","EFF"),("G4","g4 t/s"),("FLS","fls t/s"),
         ]
         self.value_items = {}
