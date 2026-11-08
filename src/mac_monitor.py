@@ -712,8 +712,8 @@ canvas { background:#0a0a0f;border:1px solid #ff6eb4;width:100%;height:160px;dis
   <span class="label" style="color:#ff8c00">SWP</span><span class="value" style="color:#ff8c00" id="v-SWP">…</span>
   <span class="label" id="l-THM" style="color:#00e676">THM</span><span class="value" id="v-THM" style="color:#00e676">…</span>
   <span class="label" style="color:#88aaff">T/W</span><span class="value" style="color:#88aaff" id="v-EFF">…</span>
-  <span class="label" id="l-G4" style="color:#e040fb">g4 t/s</span><span class="value" id="v-G4" style="color:#e040fb">…</span>
-  <span class="label" id="l-FLS" style="color:#c060e0">fls t/s</span><span class="value" id="v-FLS" style="color:#c060e0">…</span>
+  <span class="label" id="l-G4" style="color:#e040fb">💎 t/s</span><span class="value" id="v-G4" style="color:#e040fb">…</span>
+  <span class="label" id="l-FLS" style="color:#c060e0">🌩 t/s</span><span class="value" id="v-FLS" style="color:#c060e0">…</span>
 </div>
 <div class="graph-wrap">
   <div class="graph-title">MEM + GPU + SWP + MEM-Δ + T/W + TPS + PWR 10h</div>
@@ -915,7 +915,7 @@ class MonitorApp:
         stats = [
             ("USE","USE"),("RAM","RAM"),("MEM","🧠"),("SSD","SSD"),
             ("GHz","GHz"),("GPU","GPU"),("PWR","⚡"),("SWP","SWP"),
-            ("THM","THM"),("EFF","T/W"),("G4","g4 t/s"),("FLS","fls t/s"),
+            ("THM","THM"),("EFF","T/W"),("G4","💎 t/s"),("FLS","🌩 t/s"),
         ]
         self.value_items = {}
         row_start_y = 38
@@ -957,9 +957,9 @@ class MonitorApp:
             font=(FONT_FAMILY, 9, "bold"), fg=STAT_COLORS["GPU"], bg=BG_COLOR, anchor="w")
         self._mini_swp = tk.Label(self._mini_frame, text="SWP:…",
             font=(FONT_FAMILY, 9, "bold"), fg=STAT_COLORS["SWP"], bg=BG_COLOR, anchor="w")
-        self._mini_g4  = tk.Label(self._mini_frame, text="g4:…",
+        self._mini_g4  = tk.Label(self._mini_frame, text="💎:…",
             font=(FONT_FAMILY, 9, "bold"), fg=STAT_COLORS["G4"],  bg=BG_COLOR, anchor="w")
-        self._mini_fls = tk.Label(self._mini_frame, text="fls:…",
+        self._mini_fls = tk.Label(self._mini_frame, text="🌩:…",
             font=(FONT_FAMILY, 9, "bold"), fg=STAT_COLORS["FLS"], bg=BG_COLOR, anchor="w")
         self._mini_rst = tk.Label(self._mini_frame, text="▼ expand",
             font=(FONT_FAMILY, 7, "bold"), fg=BORDER_COLOR, bg=BG_COLOR, cursor="hand2", anchor="w")
@@ -1058,9 +1058,9 @@ class MonitorApp:
             self._mini_mem.config(text=f"MEM:{mem_pct}", fg=gui_mem_color)
             self._mini_gpu.config(text=f"GPU:{gpu_txt}")
             self._mini_swp.config(text=f"SWP:{swp_txt}")
-            self._mini_g4.config(text=f"g4:{get_model_display('g4', compact=True)}",
+            self._mini_g4.config(text=f"💎:{get_model_display('g4', compact=True)}",
                                  fg=get_model_color('g4', 'G4'))
-            self._mini_fls.config(text=f"fls:{get_model_display('fls', compact=True)}",
+            self._mini_fls.config(text=f"🌩:{get_model_display('fls', compact=True)}",
                                   fg=get_model_color('fls', 'FLS'))
 
         self._save_counter += 1
