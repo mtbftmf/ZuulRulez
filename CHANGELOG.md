@@ -134,3 +134,7 @@ Fix: JS canvas delta now matches PIL fix: clamp to ±10, scale by 2.5. Both grap
 - Desktop GUI shows compact form: `117.3 (117)` / `629 (7293) mW`
 - `get_model_display()` and `get_cpu_power()` accept `compact=False` param
 - Commit: 70bd88f
+
+## 2026-11-08 — PKG label and 5s power sampling
+- Renamed PWR→PKG in web dashboard and desktop GUI (SoC package power: CPU+GPU+ANE, not wall power)
+- Reduced PM_INTERVAL 15s→5s for better peak resolution on _max_pwr_mw
