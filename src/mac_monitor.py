@@ -65,6 +65,7 @@ BG_COLOR        = "#08080f"
 BG_IMAGE        = _env_path("MONITOR_BG_IMAGE", "~/.local/bin/TxtSysMonBkgd.webp")
 IMG_CROP_LEFT   = 0.38
 HISTORY_FILE    = _env_path("MONITOR_HISTORY_FILE", "~/.local/bin/mem_history.json")
+PEAKS_FILE      = _env_path("MONITOR_PEAKS_FILE",   "~/.local/share/macmonitor_peaks.json")
 STATE_FILE      = _env_path("MONITOR_STATE_FILE", "~/.local/bin/monitor_state.json")
 MAX_HISTORY     = 25920
 GRAPH_WINDOW    = 36000     # 10h desktop window (web JS uses its own WS=129600)
@@ -276,6 +277,7 @@ def _mlx_poll_one(key, base_url, prev, now):
             tps = d_out / d_dec
             st["decode_tps"], st["decode_ts"] = tps, now
             _max_tps[key] = max(_max_tps.get(key, 0), tps)
+            _save_peaks()
             with _state_lock:
                 _tps_history.append((now, tps))
                 _prune_history(_tps_history, now)
@@ -378,7 +380,11 @@ def _data_loop():
             m = CPU_PWR_RE.search(out)
             if m:
                 _state["cpu_power_mw"] = float(m.group(1))
-                global _max_pwr_mw; _max_pwr_mw = max(_max_pwr_mw or 0, _state["cpu_power_mw"])
+                global _max_pwr_mw
+                new_pwr = max(_max_pwr_mw or 0, _state["cpu_power_mw"])
+                if new_pwr > (_max_pwr_mw or 0):
+                    _max_pwr_mw = new_pwr
+                    _save_peaks()
                 _pwr_history.append((now, _state["cpu_power_mw"]))
                 _prune_history(_pwr_history, now)
             m = CPU_PFREQ_RE.search(out) or CPU_FREQ_RE.search(out)
@@ -444,6 +450,30 @@ def _data_loop():
 
 
 # ── Data fetchers ─────────────────────────────────────────────────────────────
+
+def _load_peaks():
+    """Read persisted lifetime-peak values from PEAKS_FILE on startup."""
+    global _max_tps, _max_pwr_mw
+    try:
+        if os.path.exists(PEAKS_FILE):
+            with open(PEAKS_FILE, 'r') as f:
+                data = json.load(f)
+            for k, v in data.get("max_tps", {}).items():
+                _max_tps[k] = max(_max_tps.get(k, 0), float(v))
+            stored_pwr = data.get("max_pwr_mw")
+            if stored_pwr is not None:
+                _max_pwr_mw = max(_max_pwr_mw or 0, float(stored_pwr))
+    except Exception as e:
+        log.warning("_load_peaks error: %s", e)
+
+def _save_peaks():
+    """Write current lifetime-peak values to PEAKS_FILE."""
+    try:
+        os.makedirs(os.path.dirname(PEAKS_FILE), exist_ok=True)
+        with open(PEAKS_FILE, 'w') as f:
+            json.dump({"max_tps": dict(_max_tps), "max_pwr_mw": _max_pwr_mw}, f)
+    except Exception as e:
+        log.warning("_save_peaks error: %s", e)
 
 def get_cpu_usage():    return f"{psutil.cpu_percent(interval=None):.1f}%"
 def get_ram_used_gb():
@@ -1024,6 +1054,7 @@ class MonitorApp:
 if __name__ == "__main__":
     signal.signal(signal.SIGTERM, _sigterm_handler)
     _load_history()
+    _load_peaks()
     threading.Thread(target=_data_loop,   daemon=True).start()
     threading.Thread(target=_web_server,  daemon=True).start()
     threading.Thread(target=_mlx_metrics_loop,  daemon=True).start()
