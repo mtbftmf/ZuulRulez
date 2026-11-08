@@ -70,7 +70,7 @@ STATE_FILE      = _env_path("MONITOR_STATE_FILE", "~/.local/bin/monitor_state.js
 MAX_HISTORY     = 25920
 GRAPH_WINDOW    = 36000     # 10h desktop window (web JS uses its own WS=129600)
 WEB_PORT        = 9090
-EFF_GRAPH_SCALE = 500.0     # 500 %/W = 100% of graph (M5 Max GPU/W peaks ~300-400)
+EFF_GRAPH_SCALE = 10.0      # 10 %/W = 100% of graph (GPU% / combined W; ~2 %/W at 100 tok/s, 50W)
 MLX_SERVERS       = {      # row key -> mlx-serve base URL (both localhost-only)
     "g4":  os.environ.get("MONITOR_G4_URL",  "http://127.0.0.1:11235"),   # Gemma 4
     "fls": os.environ.get("MONITOR_FLS_URL", "http://127.0.0.1:11234"),   # Flash-Next
@@ -84,7 +84,7 @@ SWP_DELTA_SAMPLES = 12
 SWP_USED_RE  = re.compile(r"used\s*=\s*([\d.]+)M")
 SWP_TOTAL_RE = re.compile(r"total\s*=\s*([\d.]+)M")
 GPU_RE       = re.compile(r"GPU HW active residency:\s*([\d.]+)%")
-CPU_PWR_RE   = re.compile(r"^CPU Power:\s*([\d.]+)\s*mW", re.MULTILINE)
+CPU_PWR_RE   = re.compile(r"^Combined Power \(CPU \+ GPU \+ ANE\):\s*([\d.]+)\s*mW", re.MULTILINE)
 CPU_FREQ_RE  = re.compile(r"(?:CPU \d+ frequency):\s*([\d.]+)\s*MHz")
 CPU_PFREQ_RE = re.compile(r"P0-Cluster HW active frequency:\s*([\d.]+)\s*MHz")
 THERMAL_RE   = re.compile(r"Current pressure level:\s*(\w+)")
@@ -385,8 +385,9 @@ def _data_loop():
                 if new_pwr > (_max_pwr_mw or 0):
                     _max_pwr_mw = new_pwr
                     _save_peaks()
-                _pwr_history.append((now, _state["cpu_power_mw"]))
-                _prune_history(_pwr_history, now)
+                _now_pwr = time.time()
+                _pwr_history.append((_now_pwr, _state["cpu_power_mw"]))
+                _prune_history(_pwr_history, _now_pwr)
             m = CPU_PFREQ_RE.search(out) or CPU_FREQ_RE.search(out)
             if m: _state["cpu_ghz"] = float(m.group(1)) / 1000
             m = THERMAL_RE.search(out)
@@ -471,7 +472,8 @@ def _save_peaks():
     try:
         os.makedirs(os.path.dirname(PEAKS_FILE), exist_ok=True)
         with open(PEAKS_FILE, 'w') as f:
-            json.dump({"max_tps": dict(_max_tps), "max_pwr_mw": _max_pwr_mw}, f)
+            json.dump({"max_tps": dict(_max_tps), "max_pwr_mw": _max_pwr_mw,
+                       "max_pwr_ts": time.strftime("%Y-%m-%dT%H:%M:%S")}, f)
     except Exception as e:
         log.warning("_save_peaks error: %s", e)
 
@@ -682,11 +684,11 @@ canvas { background:#0a0a0f;border:1px solid #ff6eb4;width:100%;height:160px;dis
 <div class="stats">
   <span class="label" style="color:#ff6eb4">USE</span><span class="value" style="color:#ff6eb4" id="v-USE">…</span>
   <span class="label" style="color:#00bfff">RAM</span><span class="value" style="color:#00bfff" id="v-RAM">…</span>
-  <span class="label" id="l-MEM" style="color:#fff">MEM</span><span class="value" id="v-MEM" style="color:#fff">…</span>
+  <span class="label" id="l-MEM" style="color:#fff">🧠</span><span class="value" id="v-MEM" style="color:#fff">…</span>
   <span class="label" style="color:#ff6633">SSD</span><span class="value" style="color:#ff6633" id="v-SSD">…</span>
   <span class="label" style="color:#c084fc">GHz</span><span class="value" style="color:#c084fc" id="v-GHz">…</span>
   <span class="label" style="color:#b4b4bc">GPU</span><span class="value" style="color:#b4b4bc" id="v-GPU">…</span>
-  <span class="label" style="color:#ffd700">PWR/W</span><span class="value" style="color:#ffd700" id="v-PWR">…</span>
+  <span class="label" style="color:#ffd700">⚡</span><span class="value" style="color:#ffd700" id="v-PWR">…</span>
   <span class="label" style="color:#ff8c00">SWP</span><span class="value" style="color:#ff8c00" id="v-SWP">…</span>
   <span class="label" id="l-THM" style="color:#00e676">THM</span><span class="value" id="v-THM" style="color:#00e676">…</span>
   <span class="label" style="color:#88aaff">EFF</span><span class="value" style="color:#88aaff" id="v-EFF">…</span>
@@ -701,14 +703,14 @@ canvas { background:#0a0a0f;border:1px solid #ff6eb4;width:100%;height:160px;dis
     <span><span class="dot" style="background:#ff6400"></span>SWP</span>
     <span><span class="dot" style="background:#b4b4bc"></span>GPU</span>
     <span><span class="dot" style="background:#aaaaaa"></span>MEM Δ</span>
-    <span><span class="dot" style="background:#5064b4"></span>EFF ÷500</span>
+    <span><span class="dot" style="background:#5064b4"></span>EFF ÷10</span>
     <span><span class="dot" style="background:#e040fb"></span>TPS ÷150</span>
-    <span><span class="dot" style="background:#ffd700"></span>PWR ÷20W</span>
+    <span><span class="dot" style="background:#ffd700"></span>⚡ ÷80W</span>
   </div>
 </div>
 <div class="updated" id="updated">Updated: …</div>
 <script>
-const WS=36000,PAD=30,ES=500,TS=150,PS=20000;
+const WS=36000,PAD=30,ES=10,TS=150,PS=80000;
 function drawGraph(mem,gpu,swp,eff,tps,pwr){
   const cv=document.getElementById('graph'),ctx=cv.getContext('2d');
   cv.width=cv.offsetWidth;cv.height=160;
@@ -891,8 +893,8 @@ class MonitorApp:
         self._min_btn.place(x=STATS_WIDTH-18, y=6)
 
         stats = [
-            ("USE","USE"),("RAM","RAM"),("MEM","MEM"),("SSD","SSD"),
-            ("GHz","GHz"),("GPU","GPU"),("PWR","PWR/W"),("SWP","SWP"),
+            ("USE","USE"),("RAM","RAM"),("MEM","🧠"),("SSD","SSD"),
+            ("GHz","GHz"),("GPU","GPU"),("PWR","⚡"),("SWP","SWP"),
             ("THM","THM"),("EFF","EFF"),("G4","g4 t/s"),("FLS","fls t/s"),
         ]
         self.value_items = {}
