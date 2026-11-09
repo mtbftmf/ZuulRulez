@@ -544,16 +544,13 @@ def get_gpu_residency():
     p = _state.get("gpu_residency"); return f"{p:.1f}%" if p is not None else "…"
 
 def get_cpu_power(compact=False):
-    """CPU power text. compact=True: "1.3 (7.5) W" for tkinter GUI.
-    compact=False: "1.3 W (max 7.5 W)" for web dashboard."""
+    """CPU power text: "1.3/7.5 W" (current/max). compact arg kept for call-site compat."""
     m = _state.get("cpu_power_mw")
     if m is None: return "…"
     w = m / 1000
     mx = _max_pwr_mw
     if mx:
-        mxw = mx / 1000
-        max_str = f" ({mxw:.1f}) W" if compact else f" (max {mxw:.1f} W)"
-        return f"{w:.1f}{max_str}" if compact else f"{w:.1f} W{max_str}"
+        return f"{w:.1f}/{mx/1000:.1f} W"
     return f"{w:.1f} W"
 
 def get_swap_used():
