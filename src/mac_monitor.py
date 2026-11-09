@@ -454,7 +454,7 @@ def _data_loop():
             sw = subprocess.check_output(["sysctl", "vm.swapusage"], text=True)
             mu = SWP_USED_RE.search(sw); mt = SWP_TOTAL_RE.search(sw)
             if mu and mt:
-                used = float(mu.group(1)) / 1024; total = float(mt.group(1)) / 1024
+                used = float(mu.group(1)); total = float(mt.group(1))
                 _state["swp_used_mb"] = used; _state["swp_total_mb"] = total
                 if total > 0:
                     now = time.time()
@@ -554,8 +554,8 @@ def get_cpu_power(compact=False):
     return f"{w:.1f} W"
 
 def get_swap_used():
-    with _state_lock: u = _state.get("swp_used_mb")
-    return "…" if u is None else f"{u:.0f} MB{_swp_arrow()}"
+    with _state_lock: u = _state.get("swp_used_mb"); t = _state.get("swp_total_mb")
+    return "…" if u is None else f"{u:.0f} / {t:.0f} MB{_swp_arrow()}"
 
 # Thermal level rank: lower index = better
 _THM_RANK = {"Nominal": 0, "Fair": 1, "Serious": 2, "Critical": 3}
