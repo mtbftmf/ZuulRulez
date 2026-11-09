@@ -168,7 +168,6 @@ for(let i=6;i<mem.length;i++){const dd=mem[i][1]-mem[i-6][1],dc=Math.min(10,Math
 | Flash ever swapped | 4,384 KB | vmmap swapped column — negligible |
 | RAM at load | 102.7/128 GB | vm_stat; two instruments agree on ~90 GiB model residency |
 | Thermal | Nominal | No throttling observed |
-| M5 Max bandwidth | 614 GB/s | Apple spec |
 
 Post ¶4/¶7 — observed-peak framing (permanent; ceiling framing superseded 2026-11-08):
 *"One box, one cable, no rack: the chip's own draw sits around 49 W sustained through generation, and the highest five-second reading on record is 82.7 W — under a desk, not in a closet."*
@@ -296,7 +295,6 @@ totals are reliable. Do not publish per-family figures.
 
 **Per-token read estimate:**
 - 2.36B routed experts + ~3.1B always-read (attn, shared, hyper, router) ≈ **~5.4B per forward pass**
-- Bandwidth: ~300–610 GB/s (underdetermined by MTP acceptance rate)
 - Do NOT publish a utilization percentage or "not saturating"
 - max_tps.fls = 103.2 from peaks file — NOT an upper bound; _max_tps was session-only and
   reset on every restart until 27b5862 (~8 deploys that day). Do not cite 103.2 against
