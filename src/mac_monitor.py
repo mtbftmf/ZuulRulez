@@ -139,6 +139,7 @@ _swp_history = []
 _eff_history = []
 _tps_history = []
 _pwr_history = []
+_thm_history = []
 _state_lock  = threading.Lock()
 _max_tps     = {}          # lifetime peak decode t/s per model key since daemon start
 _max_pwr_mw  = None        # lifetime peak CPU power mW since daemon start
@@ -391,7 +392,12 @@ def _data_loop():
             m = CPU_PFREQ_RE.search(out) or CPU_FREQ_RE.search(out)
             if m: _state["cpu_ghz"] = float(m.group(1)) / 1000
             m = THERMAL_RE.search(out)
-            if m: _state["thermal"] = m.group(1)
+            if m:
+                _state["thermal"] = m.group(1)
+                _now_thm = time.time()
+                with _state_lock:
+                    _thm_history.append((_now_thm, m.group(1)))
+                    _prune_history(_thm_history, _now_thm)
 
             pct = _state.get("gpu_residency")
             if pct is not None:
@@ -551,8 +557,47 @@ def get_swap_used():
     with _state_lock: u = _state.get("swp_used_gb"); t = _state.get("swp_total_gb")
     return "…" if u is None else f"{u:.1f}/{t:.0f}G{_swp_arrow()}"
 
+# Thermal level rank: lower index = better
+_THM_RANK = {"Nominal": 0, "Fair": 1, "Serious": 2, "Critical": 3}
+_THM_ABBR = {"Nominal": "N", "Fair": "F", "Serious": "S", "Critical": "C", "…": "…"}
+
 def get_thermal():
-    t = _state.get("thermal", "…"); return t, THERMAL_COLORS.get(t, "#ffffff")
+    t = _state.get("thermal", "…")
+    color = THERMAL_COLORS.get(t, "#ffffff")
+    with _state_lock:
+        hist = list(_thm_history)
+    if len(hist) < 2:
+        return t, color
+    # Find how long current level has been continuous
+    now = time.time()
+    streak_start = hist[-1][0]
+    for ts, level in reversed(hist[:-1]):
+        if level == t:
+            streak_start = ts
+        else:
+            break
+    duration_s = now - streak_start
+    if duration_s >= 3600:
+        dur_str = f"{duration_s/3600:.0f}h"
+    elif duration_s >= 60:
+        dur_str = f"{duration_s/60:.0f}m"
+    else:
+        dur_str = f"{duration_s:.0f}s"
+    # Trend: compare current level to the previous distinct level
+    prev_level = None
+    for ts, level in reversed(hist):
+        if level != t:
+            prev_level = level
+            break
+    if prev_level is None:
+        arrow = ""
+    else:
+        cur_rank = _THM_RANK.get(t, 99)
+        prv_rank = _THM_RANK.get(prev_level, 99)
+        arrow = "↑" if cur_rank < prv_rank else "↓"
+    abbr = _THM_ABBR.get(t, t)
+    label = f"{abbr}{arrow} {dur_str}"
+    return label, color
 
 def get_efficiency():
     now = time.time()
