@@ -158,8 +158,8 @@ for(let i=6;i<mem.length;i++){const dd=mem[i][1]-mem[i-6][1],dc=Math.min(10,Math
 | Metric | Value | Context |
 |---|---|---|
 | Sustained generation | ~49 W | Combined SoC (CPU+GPU+ANE); DRAM excluded |
-| Peak (5s average) | 78.4 W | Post-regex-fix only (pre-5e4296f entries are CPU-only) |
-| Wh/1k tokens | ≥0.09 Wh | Floor — DRAM excluded from sensor |
+| Peak (5s average) | **82.7 W** | Post-regex-fix only (pre-5e4296f entries are CPU-only); max_pwr_ts 2026-11-08T18:37:25 |
+| Wh/1k tokens | ≥0.09 Wh | Floor — DRAM excluded from sensor. **publish: no** |
 | T/W at load | ~3.2 tok/s/W | g4+fls combined, 126 t/s / 39W |
 | Models on disk | 100G + 15G (GiB) | `du -shL` symlinks |
 | Flash weight files | 70.1 GiB (75.3 GB decimal) | safetensors index byte sum |
@@ -170,13 +170,43 @@ for(let i=6;i<mem.length;i++){const dd=mem[i][1]-mem[i-6][1],dc=Math.min(10,Math
 | Thermal | Nominal | No throttling observed |
 | M5 Max bandwidth | 614 GB/s | Apple spec |
 
-Post ¶4 (sustained-only until cold prefill runs):
-*"One box, one cable, no rack: 49 W sustained through generation, combined SoC package — under a desk, not in a closet."*
+Post ¶4/¶7 — observed-peak framing (permanent; ceiling framing superseded 2026-11-08):
+*"One box, one cable, no rack: the chip's own draw sits around 49 W sustained through generation, and the highest five-second reading on record is 82.7 W — under a desk, not in a closet."*
 
-Do NOT publish "78 W peak" until cold prefill measurement runs with -n 240.
-Peaks accumulated during pre-regex-fix commits are CPU-only readings.
-PCIe framing ("less than one PCIe slot") is dead: 78.4 W > 75 W PCIe slot supply.
-Idle power (0.1–0.3 W) is SoC package idle, not system idle — drop from post, invites debunk.
+**49 W sustained** is the anchor: identical across every verified measurement table. Does not move.
+**82.7 W** = highest five-second reading on record. "On record" is exact — persistence shipped
+  2026-11-08 with the file created immediately after deploy; the window is hours old, not lifetime.
+  Keep "five-second" attached every time — the interval is what makes the number defensible.
+
+Provenance of 82.7 W — established by magnitude, not timestamp:
+- Pre-fix regex matched ^CPU Power:, worth 5–7 W during MLX inference
+- Combined Power was 50–64 W simultaneously; no pre-fix parse could reach 82,706 mW
+- Because pre-fix readings ran ~10x too low, any post-fix generation reading instantly
+  overwrote the file — 82.7 W is reachable only by the corrected parse
+- max_pwr_ts shipped in the same commit as the regex fix and dates nothing on its own
+
+Semantics caveat: max_pwr_ts is written by _save_peaks() on any new peak (TPS or power),
+so it may be a save stamp, not a power-sample stamp. Optional tightening: assign it only
+in the power-peak branch (one-line change; deliver as a Python script per standing rule).
+
+Peak series (all 5-second averages): 64.2 → 64.5 → 78.4 → **82.7 W**
+
+Superseded — for the record:
+Sessions s5/s6 prescribed "nothing over 80 W in five-second samples" because peaks kept
+moving as fixes landed. The box hit 82.7 W. That is the ceiling framing's defect demonstrated
+on live data: any stated ceiling is a falsifiable claim against a distribution still being
+sampled, in a comment thread that cannot be edited. Observed-peak wording is permanent.
+
+max_tps g4 120.3 / fls 103.2 (from peaks file) — NOT upper bounds.
+_max_tps was session-only and reset on every restart until persistence landed at 27b5862,
+with ~8 deploys that day. s3 stat row shows fls 57.6 (max 81) in the same table as
+RAM 102.7 GB. Do not cite 103.2 against any throughput claim. Use conservative 100 tok/s.
+
+PS scale check closed, no action: PS moved 20000 → 80000 → 100000; 82.7/100 puts the
+gold line at 83% of scale, no clipping.
+
+PCIe framing dead: 82.7 W > 75 W PCIe slot supply.
+Idle power (0.1–0.3 W) is SoC package idle, not system idle — drop from post.
 
 ### 2026-11-08 — T/W window fix + current-power gate + PS=100000 (0eb4881)
 - T/W window mismatch: tps window was 30s but power was instantaneous 5s sample.
@@ -239,11 +269,46 @@ Scale-group route: 1.93e9 × 64 = 123.3B — agrees exactly when MTP counted
 NOTE: per-family attn/ple/hyper/q_emb splits are approximate (regex leak in bucket script);
 totals are reliable. Do not publish per-family figures.
 
+**s6 stale errors — do not inherit:**
+- "48 × 10 × 3 × 640 × 2560 ≈ 7.9B active": the value is wrong, the formula is not — it already
+  counts 10 experts per layer, so there is no missing ÷512 (that would give 4.6M). The product is
+  2,359,296,000 = 2.36B. Publish "2.4B routed expert parameters active per token"; never "2.4B
+  active" unqualified.
+- "610 GB/s corroborated" / "Flash is saturating the bus": derived from the same bad 7.9B value,
+  and "corroborated" against a 400 GB/s ceiling the same paragraph already exceeds — a reading
+  cannot corroborate a ceiling it surpasses. Publish NO bandwidth figure, range or utilization %:
+  bytes/token is underdetermined (MTP acceptance rate) and no measured ceiling for this chip
+  exists in the record. The elimination argument needs no ceiling, which is why it is the only
+  bandwidth-adjacent claim in the post. Never pair a GB/s figure with a ceiling in a reply.
+- "57 collections / all file-*": superseded by 62 collections / 8,736 vectors plus an 11-vector
+  memory store. "all file-*" was a tautology of the query filter (name LIKE 'file-%'), not a
+  finding — a NOT LIKE 'file-%' query returns user-memory-*. State the scope whenever a Chroma
+  count is quoted, and do not present 57 → 56 → 62 as one continuous verified series.
+- "Total expert pool at 4-bit ≈ 100B+": superseded by tensor-shape measurement (~121B across the
+  48 main layers, ~123B including the MTP block). Do not republish 100B.
+- "70 GB of 4-bit weights" (s6 ¶3 post copy): superseded. Flash is 73.7 GB resident, 4-bit on the
+  routed experts and 8-bit on the non-expert quantized components.
+- Hook "115 GB of model weights on disk": wrong noun and wrong units. 115 GB is model FILES from
+  du -shL (GiB) ≈ 85 GB weights + 30 GB n-gram table. du reports GiB; safetensors sums are
+  decimal. The shipped post uses the corrected wording.
+- Post-copy attribution reads "(Claude)"; every commit trailer reads "Co-Authored-By: Claude
+  Sonnet 4.6". Published attribution is Claude Sonnet 4.6 only — no other model, in any channel.
+
 **Per-token read estimate:**
 - 2.36B routed experts + ~3.1B always-read (attn, shared, hyper, router) ≈ **~5.4B per forward pass**
 - Bandwidth: ~300–610 GB/s (underdetermined by MTP acceptance rate)
 - Do NOT publish a utilization percentage or "not saturating"
-- Elimination argument: dense read at 141.5 tok/s needs 10,429 GB/s — sparsity proven by elimination
+- max_tps.fls = 103.2 from peaks file — NOT an upper bound; _max_tps was session-only and
+  reset on every restart until 27b5862 (~8 deploys that day). Do not cite 103.2 against
+  any throughput claim. Use conservative 100 tok/s in all published arithmetic.
+- Elimination argument: 73.7 GB × 100 tok/s (conservative) = 7,370 GB/s ≈ **7,400 GB/s** needed
+  No Mac has that. Sparsity proven by elimination, indifferent to true throughput figure.
+  Units note: 73.7 GB is the vmmap IOAccelerator figure for Flash's resident weights [s6], and
+  vmmap size columns are binary (GiB). Read as GiB that is ~79.1 GB decimal, so the dense-read
+  requirement rises to ~7.9 TB/s — it never falls. The safetensors decimal sum of all tensors
+  is a DIFFERENT quantity (every tensor incl. scales/biases, not just resident weights) and
+  must not be cited as the source of 73.7. "7,400 GB/s" is conservative under either reading;
+  nobody should "correct" it upward to match the binary interpretation.
 
 **Units (pinned):**
 75.3 GB decimal = 70.1 GiB safetensors + 27.8 GiB ngram_table.bin = 97.9 GiB ≈ du's 100G
