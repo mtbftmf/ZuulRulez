@@ -142,7 +142,8 @@ _pwr_history = []
 _thm_history = []
 _state_lock  = threading.Lock()
 _max_tps     = {}          # lifetime peak decode t/s per model key since daemon start
-_max_pwr_mw  = None        # lifetime peak CPU power mW since daemon start
+_max_pwr_mw  = None
+_max_pwr_ts  = None        # lifetime peak CPU power mW since daemon start
 
 
 # ── History helpers ───────────────────────────────────────────────────────────
@@ -385,6 +386,8 @@ def _data_loop():
                 new_pwr = max(_max_pwr_mw or 0, _state["cpu_power_mw"])
                 if new_pwr > (_max_pwr_mw or 0):
                     _max_pwr_mw = new_pwr
+                    global _max_pwr_ts
+                    _max_pwr_ts = time.strftime("%Y-%m-%dT%H:%M:%S")
                     _save_peaks()
                 _now_pwr = time.time()
                 _pwr_history.append((_now_pwr, _state["cpu_power_mw"]))
@@ -487,7 +490,7 @@ def _save_peaks():
         os.makedirs(os.path.dirname(PEAKS_FILE), exist_ok=True)
         with open(PEAKS_FILE, 'w') as f:
             json.dump({"max_tps": dict(_max_tps), "max_pwr_mw": _max_pwr_mw,
-                       "max_pwr_ts": time.strftime("%Y-%m-%dT%H:%M:%S")}, f)
+                       "max_pwr_ts": _max_pwr_ts}, f)
     except Exception as e:
         log.warning("_save_peaks error: %s", e)
 
