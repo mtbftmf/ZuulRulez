@@ -557,7 +557,7 @@ def get_cpu_power(compact=False):
 
 def get_swap_used():
     with _state_lock: u = _state.get("swp_used_mb"); t = _state.get("swp_total_mb")
-    return "…" if u is None else f"{u:.0f} / {t:.0f} MB{_swp_arrow()}"
+    return "…" if u is None else f"{u:.0f}/{t:.0f} MB{_swp_arrow()}"
 
 # Thermal level rank: lower index = better
 _THM_RANK = {"Nominal": 0, "Fair": 1, "Serious": 2, "Critical": 3}
