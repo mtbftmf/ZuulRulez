@@ -170,6 +170,7 @@ def _load_history():
                 _eff_history.extend((ts, v) for ts, v in data.get("eff_history", []) if ts > cutoff)
                 _tps_history.extend((ts, v) for ts, v in data.get("tps_history", []) if ts > cutoff)
                 _pwr_history.extend((ts, v) for ts, v in data.get("pwr_history", []) if ts > cutoff)
+                _thm_history.extend((ts, v) for ts, v in data.get("thm_history", []) if ts > cutoff)
                 _mem_min = data.get("min")
                 _mem_max = data.get("max")
             else:
@@ -185,6 +186,7 @@ def _save_history():
                 "history":     _mem_history, "min": _mem_min, "max": _mem_max,
                 "gpu_history": _gpu_history, "swp_history": _swp_history,
                 "eff_history": _eff_history, "tps_history": _tps_history, "pwr_history": _pwr_history,
+                "thm_history": _thm_history,
             }, f)
     except Exception as e:
         log.warning("_save_history error: %s", e)
