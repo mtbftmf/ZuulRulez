@@ -193,3 +193,9 @@ Fix: PS raised to 100000 (100W); legend updated to `⚡ ÷100W`.
 
 **Verified:** T/W: 3.2 tok/s/W at 32.5W during generation; `…` at idle/post-gen.
 Peak PWR: 78.4W (new high, 5s average).
+## Unreleased
+
+- `src/mac_monitor.py`: track daemon source with Path.home()-derived defaults and wrapper call site.
+- `sudoers.d/mac-monitor.example`: add placeholder sudoers rule for the pinned wrapper.
+- Peaks provenance: seed samplers and wrapper metadata; add sampler sentinel.
+

@@ -365,12 +365,7 @@ def get_mem_pressure_color():
 
 def _data_loop():
     global _mem_min, _mem_max
-    pm_cmd = [
-        "sudo", "/usr/bin/powermetrics",
-        "--samplers", "cpu_power,gpu_power,thermal",
-        "-n", "1", "-i", str(PM_INTERVAL * 1000),
-        "--hide-cpu-duty-cycle",
-    ]
+    pm_cmd = ["sudo", "/usr/local/bin/run-powermetrics"]
     while True:
         try:
             result = subprocess.run(pm_cmd, capture_output=True, text=True, timeout=PM_INTERVAL + 5)
