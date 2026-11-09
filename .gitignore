@@ -16,3 +16,4 @@ dist/
 *.log
 mem_history.json
 monitor_state.json
+*.py
