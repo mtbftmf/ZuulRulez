@@ -1122,6 +1122,15 @@ if __name__ == "__main__":
     signal.signal(signal.SIGTERM, _sigterm_handler)
     _load_history()
     _load_peaks()
+    try:
+        import subprocess as _sp, os as _os
+        _git_rev = _sp.check_output(
+            ["git", "-C", _os.path.dirname(_os.path.dirname(_os.path.realpath(__file__))),
+             "rev-parse", "--short", "HEAD"],
+            stderr=_sp.DEVNULL, text=True).strip()
+    except Exception:
+        _git_rev = "unknown"
+    log.warning("mac_monitor boot — git rev %s", _git_rev)
     threading.Thread(target=_data_loop,   daemon=True).start()
     threading.Thread(target=_web_server,  daemon=True).start()
     threading.Thread(target=_mlx_metrics_loop,  daemon=True).start()
