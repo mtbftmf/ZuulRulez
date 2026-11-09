@@ -455,7 +455,7 @@ def _data_loop():
             mu = SWP_USED_RE.search(sw); mt = SWP_TOTAL_RE.search(sw)
             if mu and mt:
                 used = float(mu.group(1)) / 1024; total = float(mt.group(1)) / 1024
-                _state["swp_used_gb"] = used; _state["swp_total_gb"] = total
+                _state["swp_used_mb"] = used; _state["swp_total_mb"] = total
                 if total > 0:
                     now = time.time()
                     with _state_lock:
@@ -508,7 +508,7 @@ def _mem_arrow():
 def _swp_arrow():
     with _state_lock: snap = list(_swp_history)
     if len(snap) < SWP_DELTA_SAMPLES: return ""
-    total = _state.get("swp_total_gb", 1)
+    total = _state.get("swp_total_mb", 1)
     if total == 0: return ""
     gb = (snap[-1][1] - snap[-SWP_DELTA_SAMPLES][1]) / 100 * total
     return " ↑↑" if gb>0.5 else " ↑" if gb>0.1 else " ↓" if gb<-0.1 else ""
@@ -557,7 +557,7 @@ def get_cpu_power(compact=False):
     return f"{w:.1f} W"
 
 def get_swap_used():
-    with _state_lock: u = _state.get("swp_used_gb")
+    with _state_lock: u = _state.get("swp_used_mb")
     return "…" if u is None else f"{u:.0f} MB{_swp_arrow()}"
 
 # Thermal level rank: lower index = better
