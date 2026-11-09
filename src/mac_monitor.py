@@ -66,6 +66,7 @@ BG_IMAGE        = _env_path("MONITOR_BG_IMAGE", "~/.local/bin/TxtSysMonBkgd.webp
 IMG_CROP_LEFT   = 0.38
 HISTORY_FILE    = _env_path("MONITOR_HISTORY_FILE", "~/.local/bin/mem_history.json")
 PEAKS_FILE      = _env_path("MONITOR_PEAKS_FILE",   "~/.local/share/macmonitor_peaks.json")
+PEAKS_SCHEMA    = 2  # bump when stored semantics change
 STATE_FILE      = _env_path("MONITOR_STATE_FILE", "~/.local/bin/monitor_state.json")
 MAX_HISTORY     = 25920
 GRAPH_WINDOW    = 36000     # 10h desktop window (web JS uses its own WS=129600)
@@ -473,7 +474,7 @@ def _data_loop():
 
 def _load_peaks():
     """Read persisted lifetime-peak values from PEAKS_FILE on startup."""
-    global _max_tps, _max_pwr_mw
+    global _max_tps, _max_pwr_mw, _max_pwr_ts
     try:
         if os.path.exists(PEAKS_FILE):
             with open(PEAKS_FILE, 'r') as f:
@@ -483,6 +484,11 @@ def _load_peaks():
             stored_pwr = data.get("max_pwr_mw")
             if stored_pwr is not None:
                 _max_pwr_mw = max(_max_pwr_mw or 0, float(stored_pwr))
+            if data.get("schema", 1) < PEAKS_SCHEMA:
+                _max_pwr_ts = None   # pre-fb231ec: stamp written on any peak, not just power
+                log.warning("_load_peaks: pre-schema-2 file; max_pwr_ts nulled (unreliable)")
+            else:
+                _max_pwr_ts = data.get("max_pwr_ts")
     except Exception as e:
         log.warning("_load_peaks error: %s", e)
 
@@ -491,8 +497,8 @@ def _save_peaks():
     try:
         os.makedirs(os.path.dirname(PEAKS_FILE), exist_ok=True)
         with open(PEAKS_FILE, 'w') as f:
-            json.dump({"max_tps": dict(_max_tps), "max_pwr_mw": _max_pwr_mw,
-                       "max_pwr_ts": _max_pwr_ts}, f)
+            json.dump({"schema": PEAKS_SCHEMA, "max_tps": dict(_max_tps),
+                       "max_pwr_mw": _max_pwr_mw, "max_pwr_ts": _max_pwr_ts}, f)
     except Exception as e:
         log.warning("_save_peaks error: %s", e)
 
@@ -1132,7 +1138,16 @@ if __name__ == "__main__":
             stderr=_sp.DEVNULL, text=True).strip()
     except Exception:
         _git_rev = "unknown"
-    log.warning("mac_monitor boot — git rev %s", _git_rev)
+    try:
+        _git_dirty = _sp.check_output(
+            ["git", "-C", _os.path.dirname(_os.path.dirname(_os.path.realpath(__file__))),
+             "status", "--porcelain"],
+            stderr=_sp.DEVNULL, text=True).strip()
+    except Exception:
+        _git_dirty = "unknown"
+    log.warning("mac_monitor boot — git rev %s dirty=%s", _git_rev, bool(_git_dirty))
+    if _git_dirty:
+        log.warning("mac_monitor boot — uncommitted changes:\n%s", _git_dirty)
     threading.Thread(target=_data_loop,   daemon=True).start()
     threading.Thread(target=_web_server,  daemon=True).start()
     threading.Thread(target=_mlx_metrics_loop,  daemon=True).start()
