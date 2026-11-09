@@ -17,3 +17,4 @@ dist/
 mem_history.json
 monitor_state.json
 *.py
+*.md
