@@ -20,7 +20,7 @@ LM Studio were removed the same day after the blind quality check.
 | Server | `127.0.0.1:11234` only (the mlx-serve default is `0.0.0.0`), OpenAI-compatible `/v1`, `/health`, `/metrics.json` |
 | Process | LaunchAgent `com.$USER.mlx-serve` (KeepAlive, ThrottleInterval 30), template `m5/launchd/mlx-serve.plist.template` |
 | Logs | `~/.mlx-serve/logs/mlx-serve-11234.log` (rotates at 32 MB), `~/Library/Logs/mlx-serve.log` |
-| Storage | Internal drive. Never on the external RAID0 (the 30 GB n-gram table is memory-mapped; the stripe has no redundancy) |
+| Storage | Internal drive for anything memory-mapped. dd 20 GB (2026-11-04): internal 14.0 GB/s read / 4.6 write; TB5 RAID0 10.2 read / 7.7 write. The stripe has no redundancy, a USB disconnect turns a serving process into a crash rather than a slowdown, and the volume mounts late at boot. RAID0 earns its keep on writes and holds the flint GGUF library plus write-heavy scratch (conversions, experiment cache via HF_HUB_CACHE); never the shared ~/.cache/huggingface/hub |
 | Rollback | None. The AtomicChat GGUF and LM Studio were removed Nov 3 after the 10-prompt check found no consistent quality gap (GGUF better on 3 of 10 in round 1, best on 0 of those 3 when rerun; differences were sampling noise). Recovery: mlx-serve stays pinned; the pack re-downloads with `hf download` |
 
 ## Server flags (`mlx-serve.plist.template`)
@@ -160,4 +160,3 @@ The repo-workflow and M5-scope memories from Oct 23 are unchanged.
 - Swap watch through Oct 27 (`sysctl vm.swapusage`).
 - Gemma drafter (`--drafter`) not tried yet.
 - `max_tokens` on Flash personas used outside Auto.
-- External RAID0: unused by the stack since the RAID guard (an LM Studio model folder) was removed Nov 3.

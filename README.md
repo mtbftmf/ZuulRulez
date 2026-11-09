@@ -10,7 +10,7 @@ Local LLM setup that runs two models side by side behind Open WebUI: Flash-Next 
 
 | Component | Setting |
 | --- | --- |
-| Hardware | Mac Studio M5 Max (18 CPU / 40 GPU), 128 GB, 1 TB, macOS 27.0.1 |
+| Hardware | Mac Studio M5 Max (18 CPU / 40 GPU), 128 GB, 1 TB, macOS 27.2 |
 | Workhorse | `flash-next` = MLX pack `ddalcu/Qwen3.8-Flash-Next-MLX-Serve-mixed-4-8bit` (4-bit affine, ~65 GB weights + 30 GB n-gram table mmapped), via `~/.mlx-serve/models/flash-next`. Vision and MTP included |
 | Flash server | [mlx-serve](https://github.com/ddalcu/mlx-serve) 26.10.3 (`brew pin`ned) on `127.0.0.1:11234`, LaunchAgent `com.$USER.mlx-serve`: `--ctx-size 131072 --mtp --no-pld --max-concurrent 2 --metrics` |
 | Router / vision / tasks | `gemma-4-26b-a4b-it-qat` = MLX pack `mlx-community/gemma-4-26B-A4B-it-qat-4bit` (~15 GB) via `~/.mlx-serve/models/gemma-4-26b-a4b-it-qat`, in a second mlx-serve on `127.0.0.1:11235`, LaunchAgent `com.$USER.mlx-serve-gemma`: `--ctx-size 32768 --max-concurrent 2 --metrics`. Thinking off unless a request turns it on (Gemma-* personas do). Moved from LM Studio Nov 3 |
