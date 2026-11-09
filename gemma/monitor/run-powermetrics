@@ -1,0 +1,2 @@
+#!/bin/sh
+exec /usr/bin/powermetrics --samplers cpu_power,gpu_power,thermal -n 1 -i 5000 --hide-cpu-duty-cycle
