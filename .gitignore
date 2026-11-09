@@ -1,20 +1,3 @@
-__pycache__/
-*.pyc
-.DS_Store
-*.log
-build/
-dist/
-*.env
-.env*
-*secret*
-*token*
-
-# Mac Studio Monitor — machine-specific and runtime files
-*.env
-~/.config/
-*.webp
-*.log
-mem_history.json
-monitor_state.json
-*.py
-*.md
+# Root-only: stray patch scripts and notes
+/*.py
+/*.md
