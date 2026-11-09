@@ -315,9 +315,9 @@ def get_model_display(key, compact=False):
     if not st.get("up"):
         return "—"
     mx = _max_tps.get(key)
-    max_str = f" ({mx:.0f})" if (mx and compact) else f" (max {mx:.0f})" if mx else ""
+    max_str = f"/{mx:.0f}" if mx else ""
     if st.get("running", 0) > 0 and st.get("live_tps") and now - st.get("live_ts", 0) < MLX_POLL_INTERVAL * 3:
-        return f"{st['live_tps']:.1f}~{max_str}"
+        return f"{st['live_tps']:.1f}{max_str}"
     if st.get("decode_tps") and now - st.get("decode_ts", 0) < 3600:
         return f"{st['decode_tps']:.1f}{max_str}"
     return "—"
