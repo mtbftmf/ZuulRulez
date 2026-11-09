@@ -505,7 +505,7 @@ def _save_peaks():
 def get_cpu_usage():    return f"{psutil.cpu_percent(interval=None):.1f}%"
 def get_ram_used_gb():
     m = psutil.virtual_memory()
-    return f"{m.used/1024**3:.1f}/{m.total/1024**3:.0f}G"
+    return f"{m.used/1024**3:.1f}/{m.total/1024**3:.0f} G"
 
 def _mem_arrow():
     with _state_lock: snap = list(_mem_history)
@@ -765,8 +765,8 @@ canvas { background:#0a0a0f;border:1px solid #ff6eb4;width:100%;height:160px;dis
   <span class="label" style="color:#ff8c00">SWP</span><span class="value" style="color:#ff8c00" id="v-SWP">…</span>
   <span class="label" id="l-THM" style="color:#00e676">THM</span><span class="value" id="v-THM" style="color:#00e676">…</span>
   <span class="label" style="color:#88aaff">T/W</span><span class="value" style="color:#88aaff" id="v-EFF">…</span>
-  <span class="label" id="l-G4" style="color:#e040fb">💎 t/s</span><span class="value" id="v-G4" style="color:#e040fb">…</span>
-  <span class="label" id="l-FLS" style="color:#c060e0">🌩 t/s</span><span class="value" id="v-FLS" style="color:#c060e0">…</span>
+  <span class="label" id="l-G4" style="color:#e040fb">💎</span><span class="value" id="v-G4" style="color:#e040fb">…</span>
+  <span class="label" id="l-FLS" style="color:#c060e0">🌩</span><span class="value" id="v-FLS" style="color:#c060e0">…</span>
 </div>
 <div class="graph-wrap">
   <div class="graph-title">MEM + GPU + SWP + MEM-Δ + T/W + TPS + PWR 10h</div>
@@ -847,10 +847,10 @@ function upd(d){
   document.getElementById('v-THM').textContent=d.THM;
   document.getElementById('v-THM').style.color=d.THM_COLOR;
   document.getElementById('l-THM').style.color=d.THM_COLOR;
-  document.getElementById('v-G4').textContent=d.G4;
+  document.getElementById('v-G4').textContent=d.G4 ? d.G4+' t/s' : d.G4;
   document.getElementById('v-G4').style.color=d.G4_COLOR;
   document.getElementById('l-G4').style.color=d.G4_COLOR;
-  document.getElementById('v-FLS').textContent=d.FLS;
+  document.getElementById('v-FLS').textContent=d.FLS ? d.FLS+' t/s' : d.FLS;
   document.getElementById('v-FLS').style.color=d.FLS_COLOR;
   document.getElementById('l-FLS').style.color=d.FLS_COLOR;
   document.getElementById('updated').textContent='Updated: '+d.updated;
@@ -968,7 +968,7 @@ class MonitorApp:
         stats = [
             ("USE","USE"),("RAM","RAM"),("MEM","🧠"),("SSD","SSD"),
             ("GHz","GHz"),("GPU","GPU"),("PWR","⚡"),("SWP","SWP"),
-            ("THM","THM"),("EFF","T/W"),("G4","💎 t/s"),("FLS","🌩 t/s"),
+            ("THM","THM"),("EFF","T/W"),("G4","💎"),("FLS","🌩"),
         ]
         self.value_items = {}
         row_start_y = 38
