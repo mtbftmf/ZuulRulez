@@ -158,7 +158,7 @@ for(let i=6;i<mem.length;i++){const dd=mem[i][1]-mem[i-6][1],dc=Math.min(10,Math
 | Metric | Value | Context |
 |---|---|---|
 | Sustained generation | ~49 W | Combined SoC (CPU+GPU+ANE); DRAM excluded |
-| Peak (5s average) | **82.7 W** | Post-regex-fix only (pre-5e4296f entries are CPU-only); max_pwr_ts 2026-11-08T18:37:25 |
+| Peak (5s average) | **85.0 W** | Post-regex-fix only (pre-5e4296f entries are CPU-only); max_pwr_ts 2026-11-09T08:41:27 |
 | Wh/1k tokens | ≥0.09 Wh | Floor — DRAM excluded from sensor. **publish: no** |
 | T/W at load | ~3.2 tok/s/W | g4+fls combined, 126 t/s / 39W |
 | Models on disk | 100G + 15G (GiB) | `du -shL` symlinks |
@@ -170,7 +170,7 @@ for(let i=6;i<mem.length;i++){const dd=mem[i][1]-mem[i-6][1],dc=Math.min(10,Math
 | Thermal | Nominal | No throttling observed |
 
 Post ¶4/¶7 — observed-peak framing (permanent; ceiling framing superseded 2026-11-08):
-*"One box, one cable, no rack: the chip's own draw sits around 49 W sustained through generation (combined SoC package), and the highest five-second reading on record is 82.7 W — under a desk, not in a closet."*
+*"One box, one cable, no rack: the chip's own draw sits around 49 W sustained through generation (combined SoC package), and the highest five-second reading on record is 85.0 W — under a desk, not in a closet."*
 
 **49 W sustained** is the anchor: identical across every verified measurement table. Does not move.
 **82.7 W** = highest five-second reading on record. "On record" is exact — persistence shipped
