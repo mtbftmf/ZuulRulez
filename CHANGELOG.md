@@ -3,6 +3,7 @@
 Newest first. Entries before Oct 16, 2026 were reconstructed from chat history.
 
 ## 2026-11-10
+- 2026-11-10 `docs`: `docs/m5-max-post-os-update-verification.md` records macOS 27.2.1 on the M5, the M5 baseline (63), the GPU limit resetting on every boot, and the System Settings search findings. Why: the doc still said the toggle was not installed on the M5 and kept a MobileAsset lead that the logs do not support. Result: the search fault is traced to CoreSpotlight failing to open its class-A index, which the MBP never queries. It is accepted as a limitation because the only difference found, FileVault, must stay off for auto-login. Documentation only.
 - 2026-11-10 `gemma/hardening`: `macos-service-toggle-reassert.sh` waits for the GUI launchd domain and retries failed session entries. Why: after macOS 27.2.1 on the MBP the reassert ran before `gui/<uid>` existed and `launchctl disable` failed with error 125 for 44 of 52 session entries. Result: waits up to 120s for the domain, retries 6 times at 5s, logs `GAVE UP` if any remain. Confirmed on the M5 Max across a real reboot (domain ready after 1s, 52 of 52 session entries OK, no FAILED). Applies to every build that installs the script; deployed copies change only when re-copied. Gap: session entries are still skipped if no console user appears within 120s.
 
 ## 2026-11-09

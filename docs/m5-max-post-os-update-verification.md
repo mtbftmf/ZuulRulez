@@ -68,7 +68,7 @@ Run on each machine after the post-update reboot.
 | Machine | Entries | System | Session |
 |---|---|---|---|
 | MBP | 62 | 10 | 52 |
-| M5 | not installed | | |
+| M5 | 63 | 11 | 52 |
 
 The MBP was 63 before `com.apple.watchdogd` was removed (2026-10-27). The script's list has about 88 labels; labels missing on the OS build are skipped.
 
@@ -85,7 +85,7 @@ The MBP was 63 before `com.apple.watchdogd` was removed (2026-10-27). The script
 - AirDrop: Studio to MBP worked. MBP to Studio worked after rebooting the MBP (checklist step 1).
 - Universal Control and ARD: **not yet tested** after the update. Universal Control worked the night before, but that was before the update and the key refresh.
 - The RemoveMacAI profile was reinstalled after the update.
-- The toggle and reassert daemon are not installed. Recommendation: skip them on the M5. The disables only partly take effect, the saving is small on 128 GB, and the script has the bugs listed under Lessons. Keep the GPU limit and the Spotlight exclusion of the model directory.
+- At the time of this check the toggle and reassert daemon were not installed; they were re-applied on 2026-11-01 (see the 27.2.1 section). The recommendation then was to skip them: the disables only partly take effect, the saving is small on 128 GB, and the script has the bugs listed under Lessons. Keep the GPU limit and the Spotlight exclusion of the model directory.
 
 ## Open issue: System Settings search broken on the M5
 
@@ -100,7 +100,7 @@ Ruled out:
 - 27.0.1: it persists on 27.2
 - the profile being installed: it persists with the profile removed
 
-**Lead:** `/System/Library/AssetsV2/com_apple_MobileAsset_LinguisticData` exists on the MBP but not on the M5. The M5 has had the profile since Oct 5, which probably kept this asset from downloading. With the profile removed, neither searching nor `sudo killall mobileassetd` made it download right away. The profile was reinstalled, so the asset will likely stay missing.
+**Earlier lead, superseded on 2026-11-10 (see the update below):** `/System/Library/AssetsV2/com_apple_MobileAsset_LinguisticData` exists on the MBP but not on the M5. The M5 has had the profile since Oct 5, which probably kept this asset from downloading. With the profile removed, neither searching nor `sudo killall mobileassetd` made it download right away. The profile was reinstalled, so the asset will likely stay missing.
 
 To try again: remove the profile, leave it off for a day, and check:
 
@@ -109,6 +109,19 @@ ls /System/Library/AssetsV2 | grep -i linguistic
 ```
 
 Then test search. Apple Intelligence models may download while the profile is off.
+
+### Update 2026-11-10: search still broken on 27.2.1
+
+A `log stream` capture while typing a query shows the failure. Each query ends in `CSSearchQueryErrorDomain -2001`. `corespotlightd` cannot open its class-A index (`cs_pc_a`): `ContentIndexOpenBulk failed(-1)`, `Failed to open index ... canCreate:0`, `Failed to write to .../errorFile1: 1`. On the MBP, where search works, the same query skips both `NSFileProtectionComplete` classes and runs only the Priority index. The Studio also tries the class-A index, which does not exist and cannot be created.
+
+The one difference found so far is FileVault: on for the MBP, off for the Studio. That is a correlation, not tested on a third Mac. FileVault stays off on the Studio because it breaks auto-login, so the fault is accepted as a known limitation. Workarounds: Cmd-Space opens panes, and a pane can be opened directly with `open` and an `x-apple.systempreferences:` URL.
+
+Also ruled out on 2026-11-10:
+
+- `DisabledBundlesFromSiriTCC` in `com.apple.Spotlight`. It listed `com.apple.systempreferences` on the Studio and was absent on the MBP; deleting it changed nothing.
+- `DisabledUTTypes`: empty on both.
+- `mobileassetd` being disabled. It was enabled for a cold boot; `/System/Library/AssetsV2` stayed at 81 entries against 91 on the MBP.
+- The missing `com_apple_MobileAsset_LinguisticData`. It is probably a legacy-generation asset (the Studio has `UAF_LinguisticData`), and no asset error appears in the log.
 
 ## Lessons
 
@@ -133,3 +146,13 @@ The toggle list labeled `com.apple.watchdogd` as "Apple Watch pairing/sync". It 
 - removed from `disabled.state`
 
 The pre-fix script is at `/usr/local/bin/macos-service-toggle.sh.bak`. The M5's unused copy in `~/Downloads` still has the old line.
+
+## macOS 27.2.1 (2026-11-10)
+
+**M5.** Installed with the RemoveMacAI profile left in place and `mobileassetd` disabled; the install did not stall. AirDrop and Universal Control (both directions), ARD, and chats on Gemma, Flash and Flash auto all passed. After the patched reassert was installed, the first reboot logged `gui/503 ready after 1s`, 52 of 52 session entries OK, no FAILED, and 63 of 63 entries still disabled. The RAID mounted a few seconds late for some startup scripts; a longer sleep in those scripts covered it.
+
+**MBP.** 27.2.1 reset 44 of 52 session overrides (error 125, see the reassert fix in `gemma/hardening/`). The patch is the same one confirmed on the M5.
+
+**GPU limit.** `iogpu.wired_limit_mb` read 0 after the update reboot and again after a cold boot the same day. Nothing reapplies it. Set `sudo sysctl iogpu.wired_limit_mb=114688` by hand after each boot. A RunAtLoad daemon was considered and declined for now.
+
+**Baseline.** The M5 baseline is 63 (11 system, 52 session).
