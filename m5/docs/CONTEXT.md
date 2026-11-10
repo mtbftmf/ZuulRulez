@@ -159,7 +159,7 @@ for(let i=6;i<mem.length;i++){const dd=mem[i][1]-mem[i-6][1],dc=Math.min(10,Math
 |---|---|---|
 | Sustained generation | ~49 W | Combined SoC (CPU+GPU+ANE); DRAM excluded |
 | Peak (5s average) | **85.0 W** | Post-regex-fix only (pre-5e4296f entries are CPU-only); max_pwr_ts 2026-11-09T08:41:27 |
-| Wh/1k tokens | ≥0.09 Wh | Floor — DRAM excluded from sensor. **publish: no** |
+| Wh/1k tokens | **0.0408 Wh/1k** | Measured 2026-11-09; flash-next :11234 decode-only; 8,000 tokens; 58.8 W median SoC; 41.2% powermetrics coverage; DRAM excluded; lower bound. |
 | T/W at load | ~3.2 tok/s/W | g4+fls combined, 126 t/s / 39W |
 | Models on disk | 100G + 15G (GiB) | `du -shL` symlinks |
 | Flash weight files | 70.1 GiB (75.3 GB decimal) | safetensors index byte sum |
