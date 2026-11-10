@@ -82,7 +82,25 @@ fi
     done
 
     if [[ -n "$CONSOLE_USER" ]]; then
+      # The console user can exist before that user's graphical launchd domain
+      # (gui/<uid>) does. After an OS update the first login is slow, and
+      # `launchctl disable gui/<uid>/...` fails until the domain is up (observed
+      # on 27.2.1: 44 of 52 session entries failed). Wait for the domain, then
+      # retry anything that still fails.
+      echo "-- waiting for gui/$CONSOLE_UID launchd domain (up to 120s) --"
+      GUI_READY=0
+      for i in $(seq 1 120); do
+        if launchctl print "gui/$CONSOLE_UID" >/dev/null 2>&1; then
+          echo "  gui/$CONSOLE_UID ready after ${i}s"
+          GUI_READY=1
+          break
+        fi
+        sleep 1
+      done
+      [ "$GUI_READY" -eq 1 ] || echo "  WARNING: gui/$CONSOLE_UID not ready after 120s; trying anyway"
+
       echo "-- session-domain (${#SESSION_LINES[@]} entries, re-targeted to gui/$CONSOLE_UID) --"
+      FAILED_LINES=()
       for line in "${SESSION_LINES[@]}"; do
         IFS='|' read -r svc domain desc <<< "$line"
         # Re-target to the CURRENT console uid, not whatever uid was
@@ -96,8 +114,35 @@ fi
           echo "  [OK] $svc ($desc) [$target_domain]"
         else
           echo "  [FAILED] $svc ($desc) [$target_domain]"
+          FAILED_LINES+=("$line")
         fi
       done
+
+      retry=1
+      while [ "${#FAILED_LINES[@]}" -gt 0 ] && [ "$retry" -le 6 ]; do
+        sleep 5
+        echo "-- retry pass $retry (${#FAILED_LINES[@]} entries) --"
+        RETRY_LINES=("${FAILED_LINES[@]}")
+        FAILED_LINES=()
+        for line in "${RETRY_LINES[@]}"; do
+          IFS='|' read -r svc domain desc <<< "$line"
+          if [[ "$domain" == user/* ]]; then
+            target_domain="user/$CONSOLE_UID"
+          else
+            target_domain="gui/$CONSOLE_UID"
+          fi
+          if sudo -u "$CONSOLE_USER" launchctl disable "$target_domain/$svc" 2>>"$LOGFILE"; then
+            echo "  [OK] $svc ($desc) [$target_domain] (retry $retry)"
+          else
+            echo "  [FAILED] $svc ($desc) [$target_domain] (retry $retry)"
+            FAILED_LINES+=("$line")
+          fi
+        done
+        retry=$((retry + 1))
+      done
+      if [ "${#FAILED_LINES[@]}" -gt 0 ]; then
+        echo "  GAVE UP on ${#FAILED_LINES[@]} entries after 6 retries"
+      fi
     else
       echo "  no real console user session appeared within 120s — session-domain entries skipped"
     fi
