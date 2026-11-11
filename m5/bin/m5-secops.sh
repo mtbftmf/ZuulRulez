@@ -294,7 +294,7 @@ do_verify(){
   [[ -x "$ROOT" ]] || { bad "$ROOT missing — run: $0 install"; return 1; }
 
   d=$(mktemp -d) || return 2
-  trap 'rm -rf "$d"' RETURN
+  trap 'rm -rf "$d"' EXIT
   mkdir -p "$d/dirty/$REL" "$d/clean/$REL"
   print 'DECOY-NOT-A-KEY' > "$d/dirty/$REL/root.key"
   print 'pubkey'          > "$d/clean/$REL/root.crt"
@@ -345,7 +345,7 @@ do_gate(){
   [[ "$fire" == yes       ]] && ok  "tripwire fired (runs=$runs)"                  || { bad  "tripwire never fired"; bad=1; }
   [[ "$llok" != /tmp/* && "$llok" != none ]] && ok "tripwire log path persistent"   || { bad  "tripwire log path $llok — /tmp is cleared at boot and reaped ~3d"; bad=1; }
   [[ "$pki"  != EXPOSED   ]] && ok  "live clone PKI: $pki"                         || { bad  "live clone PKI EXPOSED"; bad=1; }
-  [[ "$mpath" != /tmp/*   ]] && ok  "macmonitor log path $mpath"                   || { bad  "macmonitor logs to /tmp — stale pre-2026-11-07 plist"; bad=1; }
+  [[ "$mpath" != /tmp/*   ]] && ok  "macmonitor log path ok"                   || { bad  "macmonitor logs to /tmp — stale pre-2026-11-07 plist"; bad=1; }
   [[ "$guard" == yes      ]] && ok  "interim-archive stale-plist guard present"     || warn "interim-archive guard missing"
   sudo -n -l /usr/local/bin/run-powermetrics >/dev/null 2>&1 && ok "sudoers grant present" || warn "sudoers grant absent — re-verify after update"
   [[ "$(zsh -n $ARCH 2>&1 | wc -l | tr -d ' ')" == 0 ]] && ok "interim-archive parses" || { bad "interim-archive broken"; bad=1; }
