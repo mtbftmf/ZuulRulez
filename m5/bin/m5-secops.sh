@@ -38,7 +38,7 @@ note(){ print -r -- "      $1"; }
 # BEFORE deleting any user-writable copy.
 do_install(){
   sudo -v
-  local d; d=$(mktemp -d); chmod 700 "$d"; trap 'rm -rf "$d"' EXIT
+  local d; d=$(mktemp -d); chmod 700 "$d"; trap '[ -n "${d:-}" ] && rm -rf "$d"; true' EXIT
 
   cat > "$d/audit.sh" <<'AUDIT_EOF'
 #!/bin/zsh
@@ -159,7 +159,7 @@ if [[ "${1:-}" == "merge" ]]; then
 fi
 
 tmp=$(mktemp -t canary-extras) || exit 2
-trap 'rm -f "$tmp"' EXIT
+trap '[ -n "${tmp:-}" ] && rm -f "$tmp"; true' EXIT
 
 kv(){ print -r -- "$1=$2" >> "$tmp"; }
 
@@ -294,7 +294,7 @@ do_verify(){
   [[ -x "$ROOT" ]] || { bad "$ROOT missing — run: $0 install"; return 1; }
 
   d=$(mktemp -d) || return 2
-  trap 'rm -rf "$d"' EXIT
+  trap '[ -n "${d:-}" ] && rm -rf "$d"; true' EXIT
   mkdir -p "$d/dirty/$REL" "$d/clean/$REL"
   print 'DECOY-NOT-A-KEY' > "$d/dirty/$REL/root.key"
   print 'pubkey'          > "$d/clean/$REL/root.crt"
