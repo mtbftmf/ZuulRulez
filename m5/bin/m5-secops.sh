@@ -29,7 +29,7 @@ PRIV=(root.key intermediate.key key.pem)
 
 ok(){ print -r -- "PASS  $1"; }
 bad(){ print -r -- "FAIL  $1"; }
-warn(){ print -r -- "WARN  $1"; }
+warn(){ print -r -- "WARN  $1"; }   # only FAIL (bad) may set the blocking flag; a warn never does
 note(){ print -r -- "      $1"; }
 
 # ---------------------------------------------------------------- install ----
@@ -250,11 +250,41 @@ run_emitter(){
   env $env "$XTRA" "${@:5}"
 }
 
+# ccc_rules_state DB: set | not_set | partial_NofM | task_missing | ccc_db_missing | unreadable_or_unparsable.
+# The three Ignore rules live in CCC's task store, MetaDataV6.db: an SQLite 3 database in WAL mode (not a property
+# list). They sit inside the SETTINGS blob of the one TASK row for this task, so the query is pinned to the task UUID
+# and reads through sqlite3 (a raw byte search can miss rows still in the -wal file). MetaDataV6Archived.db is not read.
+# A match is the path followed by a character that cannot continue a path, so a rule for a subfolder such as
+# <path>/pki cannot satisfy the rule for <path>. The comparison is on the blob's bytes: cast(SETTINGS as text) stops at the
+# first NUL byte, and the settings plist has many, so text functions would see nothing after it and pass any rule.
+# A subfolder rule stored before the exact rule makes that path read as missing (partial): it fails closed. One query returns three integers (task rows | blob length | rules
+# found); anything else, a nonzero exit, an empty blob or an unsubstituted UUID prints unreadable_or_unparsable,
+# never not_set, so a broken query cannot look like a missing rule. It shows the strings exist, not that the
+# action is Exclude: the CCC window is ground truth for that.
+ccc_rules_state(){
+  local db=$1 out rc rows rest len hits p vals=""
+  local -a want
+  want=(/opt/homebrew/var/lib/caddy "/Users/$USER/Library/Application Support/Caddy" "/Users/$USER/Backups/caddy-pki-backup.zip.enc")
+  sudo test -e "$db" || { print ccc_db_missing; return; }
+  [[ "$UUID" =~ ^[0-9A-Fa-f-]{36}$ ]] || { print unreadable_or_unparsable; return; }
+  for p in $want; do
+    [[ "$p" == *\'* ]] && { print unreadable_or_unparsable; return; }
+    vals+="${vals:+,}('$p')"
+  done
+  out=$(sudo sqlite3 -readonly -list -noheader -cmd ".timeout 5000" "$db" "with rules(p) as (values $vals) select (select count(*) from TASK where UUID='$UUID'), (select coalesce(max(length(SETTINGS)),0) from TASK where UUID='$UUID'), (select count(*) from rules where exists (select 1 from TASK where UUID='$UUID' and instr(SETTINGS,cast(p as blob))>0 and cast(substr(SETTINGS, instr(SETTINGS,cast(p as blob))+length(cast(p as blob)), 1) as text) not glob '[A-Za-z0-9/._ -]'));" 2>&1); rc=$?
+  [[ $rc == 0 && "$out" =~ ^[0-9]+\|[0-9]+\|[0-9]+$ ]] || { print unreadable_or_unparsable; return; }
+  rows=${out%%|*}; rest=${out#*|}; len=${rest%%|*}; hits=${rest#*|}
+  (( rows == 1 )) || { print task_missing; return; }
+  (( len > 0 ))   || { print unreadable_or_unparsable; return; }
+  if (( hits == ${#want} )); then print set
+  elif (( hits == 0 )); then print not_set
+  else print partial_${hits}of${#want}; fi
+}
+
 # --------------------------------------------------------------- refresh ----
 do_refresh(){
   sudo -v
-  local am aud pg mi rp ex sgr exc db runs_ok=unknown dbf
-  dbf=("/Library/Application Support/com.bombich.ccc/TaskDBsV3/$UUID"*.db(N))
+  local am aud pg mi rp ex sgr exc db runs_ok=unknown
 
   if sudo test -x "$ROOT" && sudo zsh -n "$ROOT"; then aud=installed; else aud=MISSING; fi
   am=$(sudo stat -f '%Su:%Sg %Sp' "$ROOT" 2>/dev/null) || am=none
@@ -266,9 +296,7 @@ do_refresh(){
   [[ "$rp" =~ ^[0-9]+$ ]] && (( rp >= 1 )) && runs_ok=yes || runs_ok=no
   (( runs_ok == 0 )) 2>/dev/null; rp=${rp:-0}
 
-  if (( ${#dbf} == 0 )); then exc=task_db_missing
-  elif sudo grep -qa 'caddy/pki' "$dbf[1]"; then exc=set
-  else exc=not_set; fi
+  exc=$(ccc_rules_state "/Library/Application Support/com.bombich.ccc/MetaDataV6.db")
 
   if sudo -n -l /usr/local/bin/run-powermetrics >/dev/null 2>&1; then sgr=present
   else sgr=absent_or_needs_password; fi
@@ -340,7 +368,7 @@ do_gate(){
   [[ -e $ARCH ]] && grep -q '^# STALE PLIST guard' "$ARCH" && guard=yes
 
   print -r -- "================ M5 pre-update security gate ================"
-  [[ "$exc"  == set       ]] && ok  "ccc_exclusion_set=set"                        || { bad  "ccc_exclusion_set=$exc — CCC UI, task ${UUID:0:8}: exclude /opt/homebrew/var/lib/caddy/pki"; bad=1; }
+  [[ "$exc"  == set       ]] && ok  "ccc_exclusion_set=set (three rules in this task's CCC settings; Exclude action not checked)" || { bad  "ccc_exclusion_set=$exc — CCC UI, task ${UUID:0:8}, Ignore list: /opt/homebrew/var/lib/caddy ; /Users/<LOCAL-USERNAME>/Library/Application Support/Caddy ; /Users/<LOCAL-USERNAME>/Backups/caddy-pki-backup.zip.enc"; bad=1; }
   [[ "$aud"  == installed ]] && ok  "tripwire installed (root:wheel /usr/local/sbin)" || { bad  "tripwire $aud"; bad=1; }
   [[ "$fire" == yes       ]] && ok  "tripwire fired (runs=$runs)"                  || { bad  "tripwire never fired"; bad=1; }
   [[ "$llok" != /tmp/* && "$llok" != none ]] && ok "tripwire log path persistent"   || { bad  "tripwire log path $llok — /tmp is cleared at boot and reaped ~3d"; bad=1; }
@@ -351,10 +379,11 @@ do_gate(){
   [[ "$(zsh -n $ARCH 2>&1 | wc -l | tr -d ' ')" == 0 ]] && ok "interim-archive parses" || { bad "interim-archive broken"; bad=1; }
 
   if [[ -f $DOC ]]; then
-    grep -q 'holds `key.pem`' "$DOC" && { warn "$DOC: says the PKI dir holds key.pem — this build writes root.key and intermediate.key; any detector built from it reports clean on a clone holding the real key"; bad=1; } || ok "doc PKI wording"
+    grep -q 'holds `key.pem`' "$DOC" && { warn "${DOC:t}: says the PKI dir holds key.pem — this build writes root.key and intermediate.key; any detector built from it reports clean on a clone holding the real key"; } || ok "doc PKI wording"
     grep -q 'mbp_monitor_508'  "$DOC" && warn "$DOC: references deleted src/mbp_monitor_508.py"
   fi
 
+  warn "manual: ccc_exclusion_set shows the three paths exist in this task's CCC settings, not that the action is Exclude; confirm in the CCC window, and the first clone run is the functional proof"
   warn "manual: Startup Manager boot test for the clone (single roleless APFS volume — plan file-level restore from Recovery)"
   warn "manual: retired M5CCC destination unaccounted — assumed exposed"
 

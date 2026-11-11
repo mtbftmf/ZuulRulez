@@ -84,10 +84,11 @@ resolve, while the Studio's IP is reachable through the router.
 ## Caddy PKI private material (added 2026-11-11)
 
 This Caddy build writes its CA private keys as `root.key` and `intermediate.key`,
-not `key.pem`. The staging warning in the handoff says not to serve the PKI
-directory because it "holds `key.pem`"; a detector written from that sentence
-checks a filename that does not exist and reports clean on a copy holding the
-real CA key.
+not `key.pem`. The staging warning in the handoff names `key.pem` as the private
+file in the PKI directory; a detector written from that sentence checks a
+filename that does not exist and reports clean on a copy holding the real CA key.
+On this Studio the keys were found under the per-user data directory, not the
+Homebrew one the first audit probed, and a full-volume clone copies both trees.
 
 Private material must never reach backup media, and drift checking cannot see it:
 the CA check in `m5-drift.sh` compares the SHA-256 of the keychain root against
@@ -97,8 +98,27 @@ so keys persist on a destination after the live files are removed.
 
 Controls:
 
-- Exclude `/opt/homebrew/var/lib/caddy/pki` from the boot-duplicate task (CCC UI;
-  no CLI equivalent exists).
+- Exclude the whole Caddy data directories from the boot-duplicate task's Ignore
+  list (CCC UI; no CLI equivalent exists). They are regenerable runtime state, and
+  excluding the whole directory also covers the leaf private keys under
+  `certificates/local/`, which an entry for `pki` alone would miss:
+
+      /opt/homebrew/var/lib/caddy
+      /Users/<LOCAL-USERNAME>/Library/Application Support/Caddy
+      /Users/<LOCAL-USERNAME>/Backups/caddy-pki-backup.zip.enc
+
+  Type them exactly as listed, with your username in place of the placeholder; the
+  gate's FAIL message prints the same three lines. An excluded clone restores
+  without a CA, so a restored Studio needs `caddy trust` and an `m5-drift.sh
+  snapshot` rebaseline. CCC writes the rules only when the task is saved in
+  its window. The gate's `ccc_exclusion_set` reads them with `sqlite3` from
+  `/Library/Application Support/com.bombich.ccc/MetaDataV6.db` (an SQLite
+  database in WAL mode; the rules sit in the settings blob of this task's row,
+  not in the per-task `TaskDBsV3` files), pinned to the task UUID. A path must be
+  followed by a character that cannot continue a path, so a rule for a subfolder
+  cannot satisfy the one for its parent. A failed or unparsable query prints
+  `unreadable_or_unparsable`, never `not_set`. It shows the strings exist, not
+  that the action is Exclude; the CCC window is ground truth for that.
 - `/usr/local/sbin/ccc-pki-audit.sh`, root:wheel 0755, hourly at :07. Root-executed
   code must not live on an admin-writable path, for the same reason the sudoers
   wrapper is pinned in `/usr/local/bin` and not `/opt/homebrew/bin`.
