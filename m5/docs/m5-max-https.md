@@ -80,3 +80,42 @@ resolve, while the Studio's IP is reachable through the router.
 | `ERR_SSL_PROTOCOL_ERROR` / "sent an invalid response" | HTTPS sent to the plain HTTP port (8080 or 9090); use 8443 / 9443 |
 | Name fails, IP works | Different subnet (Bonjour does not cross it): hosts entry or IP link |
 | `curl -v https://STUDIO-HOSTNAME.local:8443` shows `SSL certificate verify ok` but the browser fails | The browser, not the setup: quit it fully and retry; Chrome's Secure DNS can also break `.local` names |
+
+## Caddy PKI private material (added 2026-11-11)
+
+This Caddy build writes its CA private keys as `root.key` and `intermediate.key`,
+not `key.pem`. The staging warning in the handoff says not to serve the PKI
+directory because it "holds `key.pem`"; a detector written from that sentence
+checks a filename that does not exist and reports clean on a copy holding the
+real CA key.
+
+Private material must never reach backup media, and drift checking cannot see it:
+the CA check in `m5-drift.sh` compares the SHA-256 of the keychain root against
+the on-disk `root.crt` every 15 minutes with no sudo, and has no concept of a
+private key at all. Carbon Copy Cloner APFS snapshots also retain deleted files,
+so keys persist on a destination after the live files are removed.
+
+Controls:
+
+- Exclude `/opt/homebrew/var/lib/caddy/pki` from the boot-duplicate task (CCC UI;
+  no CLI equivalent exists).
+- `/usr/local/sbin/ccc-pki-audit.sh`, root:wheel 0755, hourly at :07. Root-executed
+  code must not live on an admin-writable path, for the same reason the sudoers
+  wrapper is pinned in `/usr/local/bin` and not `/opt/homebrew/bin`.
+- `m5-secops.sh refresh | verify | gate | install | emit | merge`.
+- Audit logs live under `/usr/local/var/log`, never `/tmp`, which macOS clears at
+  boot and reaps after roughly three days.
+- Adding the exclusion does not rotate the root, so no client re-trust and no
+  `m5-drift.sh snapshot` rebaseline are required.
+
+Reconstructing a runnable copy: the committed tools are redacted, with
+`<CLONE-VOLUME>` and `<CCC-TASK-UUID>` as inert tokens — deliberately not shell
+variables, because the clone path also appears inside the heredoc that generates
+the root audit script, where a runtime variable would give the root daemon an
+undocumented dependency on a user config file. Restore before install:
+
+    set -a; source ~/.config/m5-secops.env; set +a
+    sed -e "s|<CLONE-VOLUME>|$M5_CLONE_VOL|g" \
+        -e "s|<CCC-TASK-UUID>|$M5_CCC_TASK_UUID|g" \
+        m5/bin/m5-secops.sh > ~/bin/m5-secops.sh
+    chmod 755 ~/bin/m5-secops.sh
