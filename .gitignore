@@ -1,3 +1,4 @@
 # Root-only: stray patch scripts and notes
 /*.py
 /*.md
+__pycache__/
