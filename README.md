@@ -12,7 +12,7 @@ Local LLM setup that runs two models side by side behind Open WebUI: Flash-Next 
 | --- | --- |
 | Hardware | Mac Studio M5 Max (18 CPU / 40 GPU), 128 GB, 1 TB, macOS 27.2 |
 | Workhorse | `flash-next` = MLX pack `ddalcu/Qwen3.8-Flash-Next-MLX-Serve-mixed-4-8bit` (4-bit affine, ~65 GB weights + 30 GB n-gram table mmapped), via `~/.mlx-serve/models/flash-next`. Vision and MTP included |
-| Flash server | [mlx-serve](https://github.com/ddalcu/mlx-serve) 26.10.3 (`brew pin`ned) on `127.0.0.1:11234`, LaunchAgent `com.$USER.mlx-serve`: `--ctx-size 131072 --mtp --no-pld --max-concurrent 2 --metrics` |
+| Flash server | [mlx-serve](https://github.com/ddalcu/mlx-serve) 26.10.3 (`brew pin`ned) on `127.0.0.1:11234`, LaunchAgent `com.$USER.mlx-serve`: `--ctx-size 196608 --mtp --no-pld --max-concurrent 2 --metrics` |
 | Router / vision / tasks | `gemma-4-26b-a4b-it-qat` = MLX pack `mlx-community/gemma-4-26B-A4B-it-qat-4bit` (~15 GB) via `~/.mlx-serve/models/gemma-4-26b-a4b-it-qat`, in a second mlx-serve on `127.0.0.1:11235`, LaunchAgent `com.$USER.mlx-serve-gemma`: `--ctx-size 32768 --max-concurrent 2 --metrics`. Thinking off unless a request turns it on (Gemma-* personas do). Moved from LM Studio Nov 3 |
 | Rollback | None since Nov 3: the AtomicChat `Qwen3.8-Flash-Next-AD-4.27bpw-Q4_K_M-M64` GGUF (88 GB) and LM Studio were removed after the blind quality check (`llm-compare.py`). Recovery from a broken mlx-serve or pack: the pin keeps mlx-serve at 26.10.3, and the packs re-download with `hf download` into the Hugging Face cache |
 | Front end | Open WebUI 0.12, launchd daemon on `:8080`, data in `~/open-webui-data` |
@@ -111,7 +111,7 @@ Paste into Open WebUI → Admin → Functions (`pbcopy < ~/ZuulRulez/m5/openwebu
 4. Depth phrase or score ≥ 7 → Flash (xhigh); score ≥ 3 → Flash (medium). Scoring: +3 code task, +3 task phrase (troubleshoot, root cause, audit, WACC…), +2 over 1,800 chars, +2 more over 5,400.
 5. Otherwise → Gemma.
 
-Context guard (v1.3.3): Gemma is loaded at 32K, Flash at 128K. A Gemma route whose whole request (system prompt, history, images) is estimated over `FAST_CTX` − `FAST_CTX_RESERVE` (32,768 − 4,096) goes to Flash instead. An image chat that is too big goes to Flash as well (v1.3.4). Only with `/gemma` (or `STRONG_HAS_VISION` off) are the oldest messages dropped until it fits and the status line says so. Estimate: characters ÷ 3 + 1,100 per image. Set `FAST_CTX` to Gemma's `--ctx-size`; 0 turns the guard off.
+Context guard (v1.3.3): Gemma is loaded at 32K, Flash at 192K (196,608; 128K until Nov 11). A Gemma route whose whole request (system prompt, history, images) is estimated over `FAST_CTX` − `FAST_CTX_RESERVE` (32,768 − 4,096) goes to Flash instead. An image chat that is too big goes to Flash as well (v1.3.4). Only with `/gemma` (or `STRONG_HAS_VISION` off) are the oldest messages dropped until it fits and the status line says so. Estimate: characters ÷ 3 + 1,100 per image. Set `FAST_CTX` to Gemma's `--ctx-size`; 0 turns the guard off.
 
 Effort (v1.4.0): with `EFFORT_MODE` kwargs (default) every Flash request carries `chat_template_kwargs` `{enable_thinking: true, reasoning_effort: medium}`, `xhigh` for deep routes; `EFFORT_MODE` marker was for the GGUF (template default, `[effort:xhigh]` marker) and is unused since Nov 3. Thresholds and phrase lists are valves.
 

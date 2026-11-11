@@ -28,16 +28,16 @@ LM Studio were removed the same day after the blind quality check.
 | Flag | Value | Why |
 | --- | --- | --- |
 | `--host` | `127.0.0.1` | The default binds the whole LAN |
-| `--ctx-size` | 131072 | Same 128K as the GGUF; native max 256K |
+| `--ctx-size` | 196608 | 192K since Nov 11 (128K before: a 136K-token chat was refused); native max 256K, not used: at a 188K prompt the compressor already held 15 GB and pressure read warn |
 | `--mtp` | on | Native MTP head: 67 → 92 tok/s for ~4.7 GB wired |
 | `--no-pld` | off | Prompt-lookup drafting not measured; MTP outranks it anyway |
 | `--max-concurrent` | 2 | A second Flash chat starts at once (each ~51 tok/s, 100.6 total) instead of queueing |
 | `--metrics` | on | `/metrics.json` for the System Monitor |
 | `--ple-gpu` | not set | Keeps the n-gram table mmapped (CPU gather) instead of 30 GB resident |
-| `--prefix-cache-disk` | not set | SSD prefix tier off; hot cache ~5.2 GB (one 128K session) |
+| `--prefix-cache-disk` | not set | SSD prefix tier off; hot cache ~5.2 GB (one 128K session, measured before the Nov 11 change) |
 
 mlx-serve picks its own prefill chunk from free memory (2048 tokens at load on Oct 24) and
-plans against a 110 GB wired budget internally; `iogpu.wired_limit_mb` stays 0 (default).
+plans against a 110 GB wired budget internally; `iogpu.wired_limit_mb` is 114688 (112 GB), set by hand after each boot because it resets to 0 on reboot (see `docs/m5-max-post-os-update-verification.md`); read 114688 on Nov 11 after the 192K benchmark.
 
 ## Gemma (router, vision, task model)
 
@@ -104,6 +104,7 @@ GGUF on LM Studio for comparison: 48.4 tok/s decode, 934 tok/s prefill, 45.3 @ 2
 | --- | --- |
 | Idle, both models loaded | ~18 GB (mlx-serve releases wiring when idle) |
 | Flash generating | ~88-98 GB |
+| Flash, one 188K-token prompt | peak 96.9 GB, compressor 15.1 GB, pressure warn, swap +0.0 GB (Nov 11, Gemma idle) |
 | Flash + Gemma both busy | peak 98.3 GB (Gemma on mlx-serve, Nov 3); 101.7 GB with Gemma on LM Studio |
 
 No swap growth and pressure normal in every test. The n-gram table (`ngram_warm_bytes`, ~32 GB)
@@ -136,7 +137,7 @@ its first colon (parts in parentheses ignored); `--apply` replaces the memory wi
 
 1. M5 Max Flash-Next engine: Flash-Next (`flash-next`) runs on mlx-serve 26.10.3 (MLX pack
    ddalcu/Qwen3.8-Flash-Next-MLX-Serve-mixed-4-8bit) at 127.0.0.1:11234, LaunchAgent
-   com.$USER.mlx-serve, 128K context, MTP on, 2 concurrent requests, metrics at /metrics.json.
+   com.$USER.mlx-serve, 192K context, MTP on, 2 concurrent requests, metrics at /metrics.json.
    Gemma 4 26B-A4B QAT (gemma-4-26b-a4b-it-qat) runs in a second mlx-serve at 127.0.0.1:11235
    (LaunchAgent com.$USER.mlx-serve-gemma, 32K, thinking off unless a request turns it on) since
    Nov 3. Open WebUI has both connections. flash-up.sh starts both, warms them and checks them.

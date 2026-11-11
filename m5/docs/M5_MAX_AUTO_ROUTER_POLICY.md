@@ -72,8 +72,8 @@ M-series Studios using a houdini account for friends and family hosting.
 - Flash-Next is expensive to route on this machine.
 - Wired RAM: ~18 GB idle; with mlx-serve Flash generating, peak ~100 GB (Oct 24, MTP on,
   Gemma idle). The GGUF peaked near 76 GB.
-- Flash-Next loads at 128K and Gemma at 32K; each mlx-serve takes 2 requests at once (Gemma's take turns).
-  A full 128K prompt takes ~2 min to read (867 tok/s at 100K). Repeated long prefixes are cheap (prefix cache: 12.9 s -> 0.05 s TTFT at 11.9K).
+- Flash-Next loads at 192K and Gemma at 32K; each mlx-serve takes 2 requests at once (Gemma's take turns).
+  On MLX (Nov 11) a prompt takes ~41 s to read at 101K, ~53 s at 132K and ~77 s at 188K (about 2,430-2,470 tok/s; the old LM Studio GGUF read 867 tok/s at 100K). Repeated long prefixes are cheap (prefix cache: 12.9 s -> 0.05 s TTFT at 11.9K).
 - Monitor with curl 127.0.0.1:11234/health (Flash) and :11235/health (Gemma), each /metrics.json,
   memory_pressure, and sysctl vm.swapusage. Peak wired with both busy: 98.3 GB (Nov 3).
 - Use caffeinate only during deliberate long generation sessions.
