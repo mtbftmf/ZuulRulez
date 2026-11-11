@@ -26,6 +26,7 @@ ARCH=$HOME/bin/interim-archive.sh
 DOC=$HOME/ZuulRulez/m5/docs/m5-max-https.md
 REL='opt/homebrew/var/lib/caddy/pki/authorities/local'
 PRIV=(root.key intermediate.key key.pem)
+CLONE="${PKI_AUDIT_CLONE:-<CLONE-VOLUME>}"
 
 ok(){ print -r -- "PASS  $1"; }
 bad(){ print -r -- "FAIL  $1"; }
@@ -372,7 +373,12 @@ do_gate(){
   [[ "$aud"  == installed ]] && ok  "tripwire installed (root:wheel /usr/local/sbin)" || { bad  "tripwire $aud"; bad=1; }
   [[ "$fire" == yes       ]] && ok  "tripwire fired (runs=$runs)"                  || { bad  "tripwire never fired"; bad=1; }
   [[ "$llok" != /tmp/* && "$llok" != none ]] && ok "tripwire log path persistent"   || { bad  "tripwire log path $llok — /tmp is cleared at boot and reaped ~3d"; bad=1; }
-  [[ "$pki"  != EXPOSED   ]] && ok  "live clone PKI: $pki"                         || { bad  "live clone PKI EXPOSED"; bad=1; }
+  # The audit exits before writing its state file when the clone is not mounted, so "clean" in that file can be stale.
+  # Report what was actually checked: EXPOSED fails; an unmounted or unreadable result is NOT_CHECKED (a WARN, never a PASS).
+  if   [[ "$pki" == EXPOSED ]]; then bad "live clone PKI EXPOSED"; bad=1
+  elif ! mount | grep -q " on $CLONE "; then warn "live clone PKI: NOT_CHECKED (destination not mounted)"
+  elif [[ "$pki" != clean ]]; then warn "live clone PKI: NOT_CHECKED (audit state $pki)"
+  else ok "live clone PKI: clean (covers only the Homebrew pki directory; the per-user Caddy directory is not checked)"; fi
   [[ "$mpath" != /tmp/*   ]] && ok  "macmonitor log path ok"                   || { bad  "macmonitor logs to /tmp — stale pre-2026-11-07 plist"; bad=1; }
   [[ "$guard" == yes      ]] && ok  "interim-archive stale-plist guard present"     || warn "interim-archive guard missing"
   sudo -n -l /usr/local/bin/run-powermetrics >/dev/null 2>&1 && ok "sudoers grant present" || warn "sudoers grant absent — re-verify after update"
