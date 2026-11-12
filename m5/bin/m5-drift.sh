@@ -25,7 +25,8 @@ OWUI_ERR_LOG="${OWUI_ERR_LOG:-/usr/local/var/open-webui/serve.stderr.log}"
 OWUI_PLIST="${OWUI_PLIST:-/Library/LaunchDaemons/com.openwebui.serve.plist}"
 REJ_STATE="${DRIFT_REJ_STATE:-$HOME/.local/state/m5-drift/rejections}"
 
-# A job is an orphan when the program it runs, or the script an interpreter runs, no longer exists. LM Studio's
+# A job is an orphan when the program it runs, or the script an interpreter runs, no longer exists, or exists but cannot be exec'd as the
+# user the plist names: with no UserName that is root, so the owner execute bit is what counts. LM Studio's
 # autoload daemon was one: RunAtLoad, failing at every boot, and invisible to any listener check.
 orphans() {
   setopt local_options null_glob
@@ -42,8 +43,19 @@ orphans() {
       plutil -lint "$p" >/dev/null 2>&1 || print "WARN: cannot parse $p (drift check skipped it)"
       continue      # a valid plist with no program runs nothing, so it cannot be an orphan
     fi
-    if [[ "$exe" == /* && ! -x "$exe" ]]; then
-      print "DRIFT: orphan job $label: $exe is missing or not executable ($p)"; continue
+    if [[ "$exe" == /* ]]; then
+      if [[ ! -e "$exe" ]]; then
+        print "DRIFT: orphan job $label: $exe does not exist ($p)"; continue
+      fi
+      runuser=$(plutil -extract UserName raw -o - "$p" 2>/dev/null)
+      perm=$(stat -f %Sp "$exe" 2>/dev/null)
+      if [[ -z "$runuser" || "$runuser" == root ]]; then
+        [[ "${perm[4]}" == (x|s) ]] || { print "DRIFT: orphan job $label: $exe not owner-executable ($perm, runs as root) ($p)"; continue; }
+      elif [[ "$runuser" == "$USER" ]]; then
+        [[ -x "$exe" ]] || { print "DRIFT: orphan job $label: $exe not executable by $runuser ($perm) ($p)"; continue; }
+      else
+        print -u2 "NOTE: $label runs as $runuser; executability of $exe not verifiable rootlessly ($perm)"
+      fi
     fi
     case "${exe:t}" in
       sh|bash|zsh|dash|python|python3|perl|ruby|node|osascript)
