@@ -307,8 +307,32 @@ ccc_rules_state(){
   # Diagnostics go to a file, never into the parsed value: piping 2>&1 into a variable turns
   # lock noise into a string that satisfies no branch and reports a state that was never measured.
   errf=$(mktemp) || { print unreadable_or_unparsable; return; }
-  until out=$(sudo sqlite3 -readonly -list -noheader -cmd ".timeout 8000" "$db" "with rules(p) as (values $vals) select (select count(*) from TASK where UUID='$UUID'), (select coalesce(max(length(SETTINGS)),0) from TASK where UUID='$UUID'), (select count(*) from rules where exists (select 1 from TASK where UUID='$UUID' and instr(SETTINGS,cast(p as blob))>0 and cast(substr(SETTINGS, instr(SETTINGS,cast(p as blob))+length(cast(p as blob)), 1) as text) not glob '[A-Za-z0-9/._ -]'));" 2>"$errf"); rc=$?; (( rc == 0 )); do
-    (( ++tries >= 3 )) && break
+  local sql
+  local mode tries=0
+  sql="with rules(p) as (values $vals) select (select count(*) from TASK where UUID='$UUID'), (select coalesce(max(length(SETTINGS)),0) from TASK where UUID='$UUID'), (select count(*) from rules where exists (select 1 from TASK where UUID='$UUID' and instr(SETTINGS,cast(p as blob))>0 and cast(substr(SETTINGS, instr(SETTINGS,cast(p as blob))+length(cast(p as blob)), 1) as text) not glob '[A-Za-z0-9/._ -]'));"
+  # -readonly is not always available: once CCC checkpoints and removes the -wal and -shm
+  # files, SQLite cannot open a WAL-mode database read-only at all and reports CANTOPEN (14).
+  # The check was therefore intermittent by construction, succeeding only while CCC happened
+  # to hold the database open. Try the non-mutating open first, then a write-capable open
+  # restricted to queries, then once more for lock contention. Which mode produced the answer
+  # is printed, so a fallback reading is visible rather than silent. Failure stays
+  # unreadable_or_unparsable: never a clean verdict from a read that did not happen.
+  for mode in readonly query_only query_only; do
+    errf=$(mktemp)
+    if [[ $mode == readonly ]]; then
+      out=$(sudo sqlite3 -readonly -list -noheader -cmd ".timeout 8000" "$db" "$sql" 2>"$errf"); rc=$?
+    else
+      out=$(sudo sqlite3 -list -noheader -cmd ".timeout 8000" -cmd "PRAGMA query_only=ON" "$db" "$sql" 2>"$errf"); rc=$?
+    fi
+    if (( rc == 0 )); then
+      print -u2 "sqlite read mode: $mode"
+      rm -f "$errf"
+      break
+    fi
+    grep -q 'unable to open database file' "$errf" || { print -u2 "sqlite note: $(<"$errf")"; rm -f "$errf"; break; }
+    (( ++tries ))
+    print -u2 "sqlite: $mode open did not work; attempt $tries"
+    rm -f "$errf"
     sleep $(( tries * 2 ))
   done
   [[ -s "$errf" ]] && print -u2 "sqlite note: $(<"$errf")"
@@ -425,10 +449,23 @@ do_gate(){
   [[ "$llok" != /tmp/* && "$llok" != none ]] && ok "tripwire log path persistent"   || { bad  "tripwire log path $llok — /tmp is cleared at boot and reaped ~3d"; bad=1; }
   # Mount is decided first: an absent destination is NOT_CHECKED whether the stored verdict is
   # clean or exposure, so neither a stale clean passes nor a stale exposure blocks.
-  if   ! clone_mounted "$CLONE"; then warn "live clone PKI: NOT_CHECKED (destination not mounted; stored verdict: $pki)"
-  elif [[ "$pki" == exposure ]];  then bad  "live clone PKI EXPOSED (audit verdict, ${page}s old)"; bad=1
-  elif [[ "$pki" == clean ]];   then ok   "live clone PKI: clean (${page}s old; covers only the Homebrew pki directory; the per-user Caddy directory is not checked)"
-  else                               warn "live clone PKI: NOT_CHECKED (audit state $pki)"
+  local pscope pfail pkeys pbacks psnaps
+  pscope=$(awk -F= '/^pki_scope/{print $2}' "$ASTATE" 2>/dev/null)
+  pfail=$(awk -F= '/^pki_fail_reason/{print $2}' "$ASTATE" 2>/dev/null)
+  pkeys=$(awk -F= '/^pki_private_key_files/{print $2}' "$ASTATE" 2>/dev/null)
+  pbacks=$(awk -F= '/^pki_encrypted_backups/{print $2}' "$ASTATE" 2>/dev/null)
+  psnaps=$(awk -F= '/^pki_snapshots_inspected/{print $2}' "$ASTATE" 2>/dev/null)
+  local pmsg="keys=${pkeys:-?} enc_backups=${pbacks:-?} scope=${pscope:-unknown}"
+  # A destination scan and a snapshot scan are different claims and must not print one line.
+  # Only the destination scan reads the volume a restore would come from; a snapshot scan reads
+  # recovery points and says nothing about whether the live clone holds private material.
+  # could_not_check now blocks: an unmeasured clone is not a clean clone before an update.
+  if   ! clone_mounted "$CLONE";                          then warn "live clone PKI: NOT_CHECKED (destination not mounted; stored verdict: $pki, $pmsg)"
+  elif [[ "$pki" == exposure ]];                          then bad  "live clone PKI EXPOSED (${page}s old; $pmsg) - Caddy private CA material present on the clone"; bad=1
+  elif [[ "$pki" == clean && "$pscope" == destination ]]; then ok   "live clone PKI: clean (${page}s old; $pmsg) - read the mounted clone: Homebrew pki dir, every local user account under Library/Application Support/Caddy, caddy-pki-backup.zip.enc"
+  elif [[ "$pki" == clean ]];                             then warn "live clone PKI: clean by SNAPSHOT scan only (${page}s old; $pmsg, snapshots_inspected=${psnaps:-?}) - the mounted destination was not read; this does not clear the live clone"
+  elif [[ "$pki" == could_not_check ]];                   then bad  "live clone PKI: could_not_check (${page}s old; reason=${pfail:-none})"; bad=1
+  else                                                         warn "live clone PKI: NOT_CHECKED (audit state $pki${pfail:+, reason=$pfail})"
   fi
   [[ "$mpath" != /tmp/*   ]] && ok  "macmonitor log path ok"                   || { bad  "macmonitor logs to /tmp — stale pre-2026-11-07 plist"; bad=1; }
   [[ "$guard" == yes      ]] && ok  "interim-archive stale-plist guard present"     || warn "interim-archive guard missing"
@@ -443,7 +480,7 @@ do_gate(){
   warn "manual: ccc_exclusion_set shows the rule paths exist in this task's CCC settings, not that the action is Exclude; confirm in the CCC window. A completed run holding none of the source's Caddy private material is the functional proof of the exclusion's effect."
   warn "manual: Startup Manager boot test for the clone (single roleless APFS volume — plan file-level restore from Recovery)"
   warn "manual: retired M5CCC destination unaccounted — assumed exposed"
-  warn "coverage: this gate checks the Homebrew Caddy pki directory only; the per-user Caddy CA roots, leaf keys named from their SAN, and the encrypted PKI backup are not inspected by any scheduled check"
+  warn "coverage: the audit counts, never reads, *.key under the Homebrew pki dir, under every local user account under Library/Application Support/Caddy, and caddy-pki-backup.zip.enc; it reads the configured clone destination when mounted, otherwise CCC snapshots on that device. Any other destination, including retired ones, is never inspected."
 
   print -r -- "=============================================================="
   (( bad )) && print -r -- "GATE: BLOCKED" || print -r -- "GATE: CLEAN"
