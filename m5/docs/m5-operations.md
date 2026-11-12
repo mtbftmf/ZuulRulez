@@ -5,6 +5,69 @@ cost time, how the drift check and its harness are used, and how two chats are k
 (listener sets, hashes, run results) belong in a local handoff and are never committed; it names the LAN address,
 hostname and user paths.
 
+### PKI audit scope semantics
+The audit reports what it actually read. Destination scope — the configured
+clone mounted — prints PASS when clean. Snapshot scope on the same device prints
+WARN, never PASS: snapshots do not prove the live clone is clean.
+could_not_check FAILs. An unmeasured clone is not a clean clone before an update.
+
+The audit counts, never reads, *.key under the Homebrew pki dir, under every
+local user account under Library/Application Support/Caddy, and
+caddy-pki-backup.zip.enc. Any destination other than the configured one,
+including retired ones, is never inspected. A retired destination is assumed
+exposed until proven otherwise; an exclusion stops future copies and does not
+delete material already written.
+
+fce00ac narrowed the clean line to the Homebrew pki dir only. That was accurate
+when written and is superseded, not corrected: coverage now spans all three
+protected paths, so the narrow label would understate what is checked.
+
+### Drift boundaries (distinct from the root audit)
+m5-drift.sh runs rootless. It cannot read private keys or the per-user Caddy
+tree, and it hashes plist files, so it cannot see a loaded job whose plist has
+been deleted. Baseline listener facts record wildcard/specific plus port, never
+LAN addresses.
+
+### Orphan jobs and the run-user exec test
+A job is an orphan when its program is missing, or exists but cannot be exec'd
+as the user the plist names. With no UserName that is root, so the owner execute
+bit governs. Two defects were fixed in sequence:
+- [ -x ] evaluated the invoking user. A root-run daemon with a 0544 program has
+  no execute bit for other, so a running job was reported missing.
+- stat without -L is lstat, so %Sp on a symlink is always lrwxr-xr-x and every
+  symlinked program read executable. Three loaded jobs name symlinked programs;
+  judging the link rather than the target was a fail-open.
+An owner-execute octal mask is easy to get wrong: 0700 is owner r|w|x, not
+execute. The symbolic position-4 test replaced the arithmetic.
+Drift's exit code carries no verdict; stdout is the signal. The watcher keeps
+only DRIFT: and WARN: lines, so NOTE on stderr cannot escalate a PROBLEM.
+
+### Quarantined com.crystalidea.macsfancontrol.smcwrite (Nov 12)
+False positive, not a real orphan: the helper existed at mode 0544 and the job
+was running. The app was absent, so quarantine was justified regardless. Backup
+lives in /usr/local/etc/launchd-backups. /usr/local is inside the CCC clone, so
+the quarantined root-owned binary is replicated to the clone; harmless, and
+noted so its presence there is not a surprise. Helper mtime was Nov 11 12:08.
+
+### Baseline chain
+21 facts (older record) -> 23 at 2026-11-12 11:01, after new plist hashes
+appeared -> 22 at 11:09, after the smcwrite plist was removed. After a snapshot
+drift passes by construction until the next state change. Patching m5-drift.sh
+needs no snapshot: the script's own source is not a baseline fact.
+
+### ~/bin inventory
+12 regular files, 18 symlinks, 1 directory. An earlier real=13 is not
+reproducible; treat as an open one-file discrepancy rather than a corrected
+figure. The inventory loop must glob both ~/bin/*(N.) and ~/bin/*(N@) or links
+are invisible. DIFFER is expected for exactly two names, m5-secops.sh and
+canary-extras.sh, because cmp cannot mask the clone-volume token; only a masked
+compare reads identical, and a third DIFFER is a finding [1].
+
+### macmonitor.err cadence
+The NSXPCSharedListener com.apple.view-bridge Connection interrupted lines are
+periodic, roughly every 1200 s from one long-lived pid, not merely at each
+start. About 72 lines a day, no rotation.
+
 ## 1. What counts as a pass
 
 - **Chat is the pass signal, not `/health`.** Open WebUI chat is websocket-only and refuses any `Origin` that is not

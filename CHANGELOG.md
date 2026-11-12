@@ -2,6 +2,13 @@
 
 Newest first. Entries before Oct 16, 2026 were reconstructed from chat history.
 
+## 2026-11-12
+- drift: orphan check tests the exec bit matching the job's run user (7b775ea)
+- drift: judge a symlinked program by its target (af7b748)
+- secops: audit reads the mounted clone and all three protected paths (38462d6);
+  WAL-safe CCC db read, gate reports audit scope and counts (d8796dd)
+- quarantined com.crystalidea.macsfancontrol.smcwrite; drift baseline now 22 facts
+
 ## 2026-11-11
 - `m5/docs/CONTEXT.md`: peak five-second SoC power 85.0 W -> 92.6 W, and the publishable quote that repeats it. Why: the System Monitor recorded `max_pwr_mw` 92615 at 2026-11-11T07:33:30, inside the 192K `llm-bench.py` sweep (07:30-07:37). Result: figure and source (`~/.local/share/macmonitor_peaks.json`) recorded; the benchmark step is not known. Documentation only.
 - Flash context 128K -> 192K: `--ctx-size 131072` -> `196608` in `com.$USER.mlx-serve` (template, README, profile, router policy). New `m5/bin/flash-set-ctx.sh <N> [--apply]` backs up the plist, edits it, does bootout / wait / bootstrap, waits for `/health` and checks the running `--ctx-size` (plan-only without `--apply`; the old value is the rollback). Why: a chat sent 136,157 tokens and mlx-serve refused it against 131,072. Open WebUI needed no change (no Flash context setting; `FAST_CTX` 32768 is Gemma's). Result, `llm-bench.py --sweep 100000,130000,185000 --mem`, Flash alone, Gemma idle: prefill 2,462 / 2,464 / 2,432 tok/s and TTFT 41 / 53 / 77 s at 101K / 132K / 188K prompt tokens; decode 78 / 83 / 58 tok/s (two runs each; the first run of each depth was the slower one, cause not found; 93 tok/s on a short prompt). Memory: peak wired 89.8 / 90.1 / 96.9 GB, compressor 2.5 / 4.2 / 15.1 GB, swap +0.0 GB at every depth, page-ins 0.5 GB at 188K, pressure normal except warn at 188K. `vm_stat` Pageouts rose by 10 over the run and swap used stayed at 529.94 MB. Gap: one session only; two long sessions at once, or a long Flash session beside a busy Gemma, were not tested, and `iogpu.wired_limit_mb` was read after the run, not during it (114688, set by hand; it resets to 0 on reboot). Peak wired 96.9 GB is well under that limit, so the 188K pressure warn was not the wired cap; the cause was not established. 256K was not tried. 132K is the deepest prompt measured with pressure normal; 150K was not tested.
