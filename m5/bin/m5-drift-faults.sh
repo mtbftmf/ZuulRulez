@@ -2,7 +2,7 @@
 # m5-drift-faults.sh - make each m5-drift.sh row fire once against temporary state, print the raw output of
 # every step and then its verdict. Re-run it after any edit to m5-drift.sh.
 #   m5-drift-faults.sh              run the steps (exit 1 if any FAIL)
-#   m5-drift-faults.sh --self-test  break a copy of the checker five ways and require the matching step to FAIL
+#   m5-drift-faults.sh --self-test  break a copy of the checker nine ways and require the matching step to FAIL
 # It touches no live service, the baseline or the real rejection counter: every state path points into a temp
 # directory that is removed on exit or interrupt. Steps 1 and 4 write real XML plists, so they only pass where
 # plutil is the macOS one. Verdicts: PASS = the expected lines appeared and the forbidden ones did not;
@@ -17,15 +17,15 @@ print -r -- "harness $SELF $(sha12 "$SELF") proves $DRIFT $(sha12 "$DRIFT") at $
 repo=${SELF:A:h:h:h}
 print -r -- "repo head $(git -C "$repo" rev-parse --short HEAD 2>/dev/null || print unknown), $(git -C "$repo" status --porcelain -- m5/bin 2>/dev/null | wc -l | tr -d ' ') uncommitted file(s) in m5/bin (0 means the bytes above are the committed ones)"
 
-# Break a copy of the checker six ways. Each mutation must change the text (otherwise the checker was edited
+# Break a copy of the checker nine ways. Each mutation must change the text (otherwise the checker was edited
 # and this list is stale) and make the named step FAIL.
 selftest() {
   local text mut i out bad=0
   local -a ids names olds news
-  ids=(2a 1 4 5 3 1b 1c 1d)
-  names=("control-origin exclusion removed" "interpreter-script test removed" "coverage row removed" "shrink handling removed" "stale-root row removed" "missing-program check removed" "exec-bit read removed" "symlink target not followed")
-  olds=(" | grep -v 'example\\.invalid'" '[[ "$a" == /* && ! -e "$a" ]]' '(( ${${=OWUI_ORIGINS}[(Ie)$o]} )) ||' 'as new"; prev=0' '[[ "$h" == "$live" ]] || print "DRIFT: stale Caddy root' 'if [[ "$exe" == /* ]]; then' 'perm=$(stat -L -f %Sp "$exe" 2>/dev/null)' 'stat -L -f')
-  news=("" 'false' 'true ||' 'as new"; :' 'true || print "DRIFT: stale Caddy root' 'if false; then' 'perm=$(echo -rwxr-xr-x)' 'stat -f')
+  ids=(2a 1 4 5 3 1b 1c 1d 6)
+  names=("control-origin exclusion removed" "interpreter-script test removed" "coverage row removed" "shrink handling removed" "stale-root row removed" "missing-program check removed" "exec-bit read removed" "symlink target not followed" "parse-failure check removed")
+  olds=(" | grep -v 'example\\.invalid'" '[[ "$a" == /* && ! -e "$a" ]]' '(( ${${=OWUI_ORIGINS}[(Ie)$o]} )) ||' 'as new"; prev=0' '[[ "$h" == "$live" ]] || print "DRIFT: stale Caddy root' 'if [[ "$exe" == /* ]]; then' 'perm=$(stat -L -f %Sp "$exe" 2>/dev/null)' 'stat -L -f' 'plutil -lint "$p" >/dev/null 2>&1 ||')
+  news=("" 'false' 'true ||' 'as new"; :' 'true || print "DRIFT: stale Caddy root' 'if false; then' 'perm=$(echo -rwxr-xr-x)' 'stat -f' 'true ||')
   text=$(<"$DRIFT")
   for i in {1..$#ids}; do
     mut=${text/"${olds[i]}"/"${news[i]}"}
@@ -133,6 +133,10 @@ if openssl req -x509 -newkey rsa:2048 -nodes -keyout /dev/null -subj '/CN=Caddy 
 else
   print "SKIP  3  test cert could not be made: inconclusive, not evidence of a broken row"; fails=$(( fails + 1 ))
 fi
+mkdir "$D/g"
+printf '%s\n' 'this is not a plist {{{' > "$D/g/com.test.garbage.plist"
+step "6  unparseable plist: warned and skipped, not silently passed" 'WARN: cannot parse .*com[.]test[.]garbage[.]plist' '' \
+  "DRIFT_PLIST_DIRS=$D/g /Library/LaunchDaemons /Library/LaunchAgents $HOME/Library/LaunchAgents"
 step "4  coverage: plist accepts an origin OWUI_ORIGINS does not probe" 'accepts https://extra\.test:8443 but OWUI_ORIGINS does not probe it' '' "OWUI_PLIST=$D/owui.plist"
 printf '%s\n' 'https://after-rotate.test:8443 is not an accepted origin.' > "$D/err.log"
 step "5  log shrank: warned, and the new file counted from its start" 'shrank && refused 1 request\(s\).*after-rotate\.test' ''
