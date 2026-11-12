@@ -131,119 +131,28 @@ PLIST_EOF
   sudo install -o root -g wheel -m 0644 "$d/$LAB.plist" "$PL"
   sudo launchctl bootstrap system "$PL" && ok "armed hourly at :07" || { bad "bootstrap failed"; return 1; }
 
-  write_emitter
-  return 0
+  check_emitter
 }
 
 # --------------------------------------------------------------- emitter ----
-# Unprivileged companion. The whole-file alternative to patching
-# canary-fingerprint.sh: run the fingerprint as today, then 'merge' the file.
-write_emitter(){
-cat > "$XTRA" <<'EMITTER'
-#!/bin/zsh
-# canary-extras.sh — security-state extras for the canary fingerprint. NEVER sudo.
-#   emit        JSON to stdout
-#   merge FILE  update FILE in place, backup FILE.prextra
-set -u
-ST=/usr/local/etc/m5-security-state
-SN=/usr/local/var/log/ccc-pki-audit.state
-CLONE="${PKI_AUDIT_CLONE:-<CLONE-VOLUME>}"
-REL='opt/homebrew/var/lib/caddy/pki/authorities/local'
-PRIV=(root.key intermediate.key key.pem)
-MONPL=/Library/LaunchDaemons/com.user.macmonitor.plist
-ARCH=$HOME/bin/interim-archive.sh
-
-mode=emit; target=""
-if [[ "${1:-}" == "merge" ]]; then
-  mode=merge; target="${2:-}"
-  [[ -f "$target" ]] || { print -u2 "merge: no such file: $target"; exit 2; }
-fi
-
-tmp=$(mktemp -t canary-extras) || exit 2
-trap '[ -n "${tmp:-}" ] && rm -f "$tmp"; true' EXIT
-
-kv(){ print -r -- "$1=$2" >> "$tmp"; }
-
-for f in "$ST" "$SN"; do
-  [[ -r "$f" ]] || continue
-  local_pre=${f:t:r:gs/./_/}
-  while IFS= read -r l; do
-    [[ "$l" == *=* ]] || continue
-    kv "${local_pre}_${l%%=*}" "${l#*=}"
-  done < "$f"
-done
-
-live=(); for k in $PRIV; do [[ -e "$CLONE/$REL/$k" ]] && live+=$k; done
-if   (( ${#live[@]} )); then pki=EXPOSED
-elif mount | grep -q " on $CLONE "; then pki=absent
-else pki=unknown_clone_unmounted; fi
-
-lp=none
-[[ -r "$ST" ]] && lp=$(awk -F= '/^pki_log_path/{print $2}' "$ST")
-llok=missing
-case "$lp" in /tmp/*) llok=BAD_TMP ;; none) llok=missing ;; *) llok=ok ;; esac
-
-if [[ -e "$ARCH" ]] && grep -q '^# STALE PLIST guard' "$ARCH"; then guard=yes
-elif [[ -e "$ARCH" ]] && grep -q '^// STALE PLIST guard' "$ARCH"; then guard=BROKEN_COMMENT
-else guard=no; fi
-
-mpath=missing
-[[ -r "$MONPL" ]] && mpath=$(plutil -extract StandardOutPath raw "$MONPL" 2>/dev/null) || mpath=missing
-case "$mpath" in /tmp/*) mon=BAD_TMP ;; missing) mon=missing ;; *) mon=ok ;; esac
-
-python3 "$mode" "${target:-}" "$tmp" <<'PYEOF'
-import json, sys, shutil, os
-mode, target, kvf = sys.argv[1], sys.argv[2], sys.argv[3]
-raw = open(kvf).read().splitlines()
-d = {}
-for line in raw:
-    if '=' in line:
-        k, v = line.split('=', 1)
-        d[k] = v
-
-def g(*names, default='unknown'):
-    for n in names:
-        if d.get(n):
-            return d[n]
-    return default
-
-ex = {
-  "ccc_exclusion_set":            g('m5-security-state_ccc_exclusion_set'),
-  "sudoers_powermetrics_grant":   g('m5-security-state_sudoers_powermetrics_grant'),
-  "pki_tripwire_installed":       "true" if g('m5-security-state_audit_script_state') == 'installed' else "false",
-  "pki_tripwire_fires_verified":  g('m5-security-state_launchd_fired', default='unknown'),
-  "pki_tripwire_detection_verified": "true",
-  "pki_tripwire_runs":            g('ccc-pki-audit_state_pki_tripwire_runs', 'm5-security-state_launchd_runs', default='0'),
-  "pki_audit_rc":                 g('ccc-pki-audit_state_pki_audit_rc', default='never_ran'),
-  "pki_audit_script_owner":       g('m5-security-state_audit_script_owner'),
-  "ccc_snapshot_count_disk15":    g('ccc-pki-audit_state_ccc_snapshot_count', default='unknown'),
-  "pki_in_clone_live":            os.environ.get('PKI_LIVE', 'unknown'),
-  "pki_log_path":                 os.environ.get('PKI_LOG', 'unknown'),
-  "macmonitor_log_path":          os.environ.get('MON_LOG', 'unknown'),
-  "interim_stale_plist_guard_present": os.environ.get('GUARD', 'unknown'),
-  "priv_material_checked":        "root.key,intermediate.key,key.pem",
-  "backup_class":                 "carbon_copy_cloner",
-  "backup_media_class":           "external_usb_spinning_powered_off",
-  "backup_clone_shape":           "single_volume_roleless_apfs",
-  "backup_bootable_tested":       "false",
-  "recovery_path":                "file_level_restore_from_recovery",
-  "retired_task_destination":     "unaccounted",
-}
-
-if mode == 'merge':
-    shutil.copy2(target, target + '.prextra')
-    base = json.load(open(target))
-    base.update(ex)
-    with open(target, 'w') as fh:
-        json.dump(base, fh, indent=2, sort_keys=True)
-        fh.write('\n')
-    print("merged %d keys into %s (backup %s.prextra)" % (len(ex), os.path.basename(target), os.path.basename(target)), file=sys.stderr)
-else:
-    print(json.dumps(ex, indent=2, sort_keys=True))
-PYEOF
-EMITTER
-  chmod +x "$XTRA"
-  zsh -n "$XTRA" && ok "canary-extras.sh installed, parses" || bad "emitter syntax error"
+# m5/bin/canary-extras.sh is the only source of the emitter. install never writes ~/bin/canary-extras.sh: it is an
+# external dependency, checked here. A missing file, a file that does not parse, or one that differs from the repo
+# copy by anything other than the clone-volume token is a FAIL naming the path. The comparison masks the live
+# volume value (a whole-variable substring replacement, not word splitting) and uses command substitution, so
+# trailing newlines are ignored: it proves content equality modulo the token, nothing more.
+check_emitter(){
+  # tok is built from two pieces on purpose: the restore recipe's sed replaces every literal copy of the token in this file,
+  # which would turn the mask below into a no-op and the guard into a match on the live value.
+  local ref=$HOME/ZuulRulez/m5/bin/canary-extras.sh refc binc tok="<CLONE-""VOLUME>"
+  [[ -f $XTRA ]] || { bad "$XTRA is missing: nothing was written; copy m5/bin/canary-extras.sh there with the volume token filled"; return 1; }
+  zsh -n "$XTRA" || { bad "$XTRA does not parse"; return 1; }
+  [[ -n "$CLONE" && "$CLONE" != *"$tok"* ]] || { bad "clone volume not restored in this script: cannot compare $XTRA"; return 1; }
+  [[ -f $ref ]] || { bad "repo emitter missing: $ref"; return 1; }
+  refc=$(<"$ref"); binc=$(<"$XTRA")
+  (( ${#refc} > 0 )) || { bad "repo emitter is empty: $ref"; return 1; }
+  [[ "${binc//"$CLONE"/$tok}" == "$refc" ]] \
+    && ok "emitter matches m5/bin/canary-extras.sh (volume token masked)" \
+    || { bad "$XTRA differs from m5/bin/canary-extras.sh beyond the volume token"; return 1; }
 }
 
 run_emitter(){
@@ -400,7 +309,7 @@ do_gate(){
 
 # ----------------------------------------------------------------- main ----
 case "${1:-all}" in
-  install) write_emitter >/dev/null; do_install ;;
+  install) do_install ;;
   refresh) do_refresh ;;
   verify)  do_verify ;;
   gate)    do_gate ;;
