@@ -10,28 +10,60 @@
 #   ./m5-secops.sh merge F   stamp extras into fingerprint JSON file F        (no sudo)
 #
 # Run as a file. Never paste anything containing 'exit' or 'set -u' into a login shell.
+#
+# Invoke this as yourself: it elevates per-command where a fact needs root. Running it
+# under sudo is now harmless to the rule paths (they are enumerated, not derived from an
+# identity) but still leaves root-owned state, so unprivileged is the supported mode.
 
 set -u
 umask 022
+zmodload zsh/datetime
+
+# Identity is resolved before any path is built. Under sudo $HOME is /var/root and a root
+# LaunchDaemon has no $SUDO_USER, so both are consulted and an unresolvable identity is a
+# hard stop: a gate that cannot name the files it checked must not print a verdict.
+if (( EUID == 0 )); then
+  REAL_USER=${SUDO_USER:-$(stat -f%Su /dev/console 2>/dev/null)}
+  [[ -n "$REAL_USER" && "$REAL_USER" != root ]] || { print -u2 'identity unresolved: root with no attributable user'; exit 1 }
+  REAL_HOME=$(dscl . -read "/Users/$REAL_USER" NFSHomeDirectory 2>/dev/null | awk '{print $2}')
+  [[ -n "$REAL_HOME" && -d "$REAL_HOME" ]] || { print -u2 "identity unresolved: no readable home"; exit 1 }
+else
+  REAL_USER=$USER
+  REAL_HOME=$HOME
+fi
 
 LAB=com.root.ccc-pki-audit
 ROOT=/usr/local/sbin/ccc-pki-audit.sh
 PL=/Library/LaunchDaemons/$LAB.plist
 LOGD=/usr/local/var/log
 ST=/usr/local/etc/m5-security-state
-XTRA=$HOME/bin/canary-extras.sh
+XTRA=$REAL_HOME/bin/canary-extras.sh
 UUID=<CCC-TASK-UUID>
 MONPL=/Library/LaunchDaemons/com.user.macmonitor.plist
-ARCH=$HOME/bin/interim-archive.sh
-DOC=$HOME/ZuulRulez/m5/docs/m5-max-https.md
+ARCH=$REAL_HOME/bin/interim-archive.sh
+DOC=$REAL_HOME/ZuulRulez/m5/docs/m5-max-https.md
 REL='opt/homebrew/var/lib/caddy/pki/authorities/local'
 PRIV=(root.key intermediate.key key.pem)
 CLONE="${PKI_AUDIT_CLONE:-<CLONE-VOLUME>}"
+ASTATE=/usr/local/var/log/ccc-pki-audit.state
 
 ok(){ print -r -- "PASS  $1"; }
 bad(){ print -r -- "FAIL  $1"; }
 warn(){ print -r -- "WARN  $1"; }   # only FAIL (bad) may set the blocking flag; a warn never does
 note(){ print -r -- "      $1"; }
+
+# Mount-point test. The clone volume name contains a space, so neither an awk field split
+# nor 'mount | grep " on <name> "' is exact: the former cannot match a spaced path at all,
+# the latter also matches any suffixed name (a second destination). Compare the text between
+# ' on ' and the trailing ' (' instead.
+clone_mounted(){
+  local l r
+  while IFS= read -r l; do
+    r=${l#* on }; r=${r% (*}
+    [[ "$r" == "$1" ]] && return 0
+  done < <(mount)
+  return 1
+}
 
 # ---------------------------------------------------------------- install ----
 # Root executes this path hourly, so it must be root:wheel. An admin-writable
@@ -44,7 +76,10 @@ do_install(){
   cat > "$d/audit.sh" <<'AUDIT_EOF'
 #!/bin/zsh
 # Caddy CA private material must never appear on the boot clone or its CCC snapshots.
-# 0 = invariant holds AND every required check ran. 1 = exposure OR could not check.
+# Exit: 0 = invariant holds AND every required check ran. 1 = could not check (also used for
+# exposure, for backward compatibility with anything reading the exit status).
+# State key pki_audit_rc separates the outcomes, because the gate must not read an
+# operational failure as an exposure finding: 0 clean, 1 exposure seen, 2 could not check.
 LOGDIR=/usr/local/var/log
 CLONE="${PKI_AUDIT_CLONE:-<CLONE-VOLUME>}"
 VOLDISK="${PKI_AUDIT_DISK:-disk15s1}"
@@ -54,8 +89,18 @@ REL="opt/homebrew/var/lib/caddy/pki/authorities/local"
 PRIV=(root.key intermediate.key key.pem); rc=0
 SUDO=(); (( EUID != 0 )) && SUDO=(sudo)
 
-mount | grep -q " on $CLONE " || { print -u2 "CHECK FAILED: $CLONE not mounted"; exit 1; }
-[[ -d "$CLONE/opt/homebrew/var/lib/caddy" ]] || { print -u2 "CHECK FAILED: destination not a complete copy"; exit 1; }
+# Written on every exit path, including the early ones: a state file that only ever records
+# successful runs lets a verdict from days ago look current to the gate.
+wstate(){
+  { print "generated_epoch=$(date +%s)"
+    print "ccc_snapshot_count=$(diskutil apfs listSnapshots $VOLDISK 2>/dev/null | grep -cE "Name:.*$NAMEPAT")"
+    print "pki_audit_rc=$rc"
+    print "pki_tripwire_runs=$(launchctl print system/com.root.ccc-pki-audit 2>/dev/null | awk '/^[[:space:]]*runs = /{print $3}')"
+  } > "$LOGDIR/ccc-pki-audit.state" 2>/dev/null || print -u2 "WARN state evidence not written"
+}
+
+mount | grep -q " on $CLONE " || { print -u2 "CHECK FAILED: $CLONE not mounted"; rc=2; wstate; exit 1; }
+[[ -d "$CLONE/opt/homebrew/var/lib/caddy" ]] || { print -u2 "CHECK FAILED: destination not a complete copy"; rc=2; wstate; exit 1; }
 
 live=(); for k in $PRIV; do [[ -e "$CLONE/$REL/$k" ]] && live+=$k; done
 if (( ${#live[@]} )); then print -u2 "EXPOSURE live: ${live[*]}"; rc=1; else print "live clone: clean"; fi
@@ -80,18 +125,19 @@ else
       mnt=$(mktemp -d /tmp/pkiaudit.XXXXXX)
       if "${SUDO[@]}" mount_apfs -r -s "$s" /dev/$VOLDISK "$mnt" >/dev/null 2>&1; then
         check_dir "$mnt" "${s##*.}" || rc=1
-        "${SUDO[@]}" diskutil unmount "$mnt" >/dev/null 2>&1 || print -u2 "WARN unmount failed $mnt"
-        rmdir "$mnt" 2>/dev/null
-      else print -u2 "CHECK FAILED: cannot mount $s"; rc=1; fi
+        if ! "${SUDO[@]}" diskutil unmount "$mnt" >/dev/null 2>&1; then
+          # A stuck read-only snapshot mount is an operational failure, not a clean result,
+          # and must not be reported as an exposure either.
+          print -u2 "CHECK FAILED: unmount failed $mnt"; (( rc == 0 )) && rc=2
+        else
+          rmdir "$mnt" 2>/dev/null
+        fi
+      else print -u2 "CHECK FAILED: cannot mount $s"; rc=2; fi
     done
   fi
 fi
 
-{ print "generated_epoch=$(date +%s)"
-  print "ccc_snapshot_count=$(diskutil apfs listSnapshots $VOLDISK 2>/dev/null | grep -cE "Name:.*$NAMEPAT")"
-  print "pki_audit_rc=$rc"
-  print "pki_tripwire_runs=$(launchctl print system/com.root.ccc-pki-audit 2>/dev/null | awk '/^[[:space:]]*runs = /{print $3}')"
-} > "$LOGDIR/ccc-pki-audit.state" 2>/dev/null || print -u2 "WARN state evidence not written"
+wstate
 exit $rc
 AUDIT_EOF
 
@@ -105,8 +151,8 @@ AUDIT_EOF
   if sudo install -o root -g wheel -m 0755 "$d/audit.sh" "$ROOT" && sudo zsh -n "$ROOT"; then
     local fm; fm=$(sudo stat -f '%Su|%Sg|%Sp' "$ROOT")
     [[ "$fm" == "root|wheel|-rwxr-xr-x" ]] && ok "$ROOT $fm" || { bad "mode $fm"; return 1; }
-    rm -f "$HOME/bin/ccc-pki-audit.sh"
-    [[ -e "$HOME/bin/ccc-pki-audit.sh" ]] && bad "user copy survived" || ok "no user-writable copy remains"
+    rm -f "$REAL_HOME/bin/ccc-pki-audit.sh"
+    [[ -e "$REAL_HOME/bin/ccc-pki-audit.sh" ]] && bad "user copy survived" || ok "no user-writable copy remains"
   else bad "install failed — nothing removed"; return 1; fi
 
   # StartCalendarInterval supports no wildcard: Hour='*' is silently unusable and
@@ -143,14 +189,14 @@ PLIST_EOF
 check_emitter(){
   # tok is built from two pieces on purpose: the restore recipe's sed replaces every literal copy of the token in this file,
   # which would turn the mask below into a no-op and the guard into a match on the live value.
-  local ref=$HOME/ZuulRulez/m5/bin/canary-extras.sh refc binc tok="<CLONE-""VOLUME>"
+  local ref=$REAL_HOME/ZuulRulez/m5/bin/canary-extras.sh refc binc tok="<CLONE-""VOLUME>"
   [[ -f $XTRA ]] || { bad "$XTRA is missing: nothing was written; copy m5/bin/canary-extras.sh there with the volume token filled"; return 1; }
   zsh -n "$XTRA" || { bad "$XTRA does not parse"; return 1; }
   [[ -n "$CLONE" && "$CLONE" != *"$tok"* ]] || { bad "clone volume not restored in this script: cannot compare $XTRA"; return 1; }
   [[ -f $ref ]] || { bad "repo emitter missing: $ref"; return 1; }
   refc=$(<"$ref"); binc=$(<"$XTRA")
   (( ${#refc} > 0 )) || { bad "repo emitter is empty: $ref"; return 1; }
-  [[ "${binc//"$CLONE"/$tok}" == "$refc" ]] \
+  [[ "${binc//"$CLONE"/$tok}" == "$refc}" ]] \
     && ok "emitter matches m5/bin/canary-extras.sh (volume token masked)" \
     || { bad "$XTRA differs from m5/bin/canary-extras.sh beyond the volume token"; return 1; }
 }
@@ -161,7 +207,7 @@ run_emitter(){
 }
 
 # ccc_rules_state DB: set | not_set | partial_NofM | task_missing | ccc_db_missing | unreadable_or_unparsable.
-# The three Ignore rules live in CCC's task store, MetaDataV6.db: an SQLite 3 database in WAL mode (not a property
+# The Ignore rules live in CCC's task store, MetaDataV6.db: an SQLite 3 database in WAL mode (not a property
 # list). They sit inside the SETTINGS blob of the one TASK row for this task, so the query is pinned to the task UUID
 # and reads through sqlite3 (a raw byte search can miss rows still in the -wal file). MetaDataV6Archived.db is not read.
 # A match is the path followed by a character that cannot continue a path, so a rule for a subfolder such as
@@ -171,17 +217,42 @@ run_emitter(){
 # found); anything else, a nonzero exit, an empty blob or an unsubstituted UUID prints unreadable_or_unparsable,
 # never not_set, so a broken query cannot look like a missing rule. It shows the strings exist, not that the
 # action is Exclude: the CCC window is ground truth for that.
+#
+# The per-user paths are enumerated from /Users, never built from $USER or $SUDO_USER. Under sudo $USER is root,
+# which asked CCC about /Users/root and reported a true-looking partial; a root LaunchDaemon has no $SUDO_USER at all.
+# Enumerating also covers every local account, so a rule missing for a newly added user fails closed instead of
+# being silently absent from the question.
 ccc_rules_state(){
-  local db=$1 out rc rows rest len hits p vals=""
+  local db=$1 out rc rows rest len hits p vals="" tries=0 skipped=0 errf
   local -a want
-  want=(/opt/homebrew/var/lib/caddy "/Users/$USER/Library/Application Support/Caddy" "/Users/$USER/Backups/caddy-pki-backup.zip.enc")
+  want=(/opt/homebrew/var/lib/caddy)
+  local h un
+  for h in /Users/*(N-/); do
+    un=${h:t}
+    [[ $un == (Shared|Guest) || $un == .* || $un == *[\'\"\ ]* ]] && { (( skipped++ )); continue }
+    want+=("/Users/$un/Library/Application Support/Caddy")
+    want+=("/Users/$un/Backups/caddy-pki-backup.zip.enc")
+  done
+  (( ${#want} >= 3 )) || { print -u2 "rule paths unresolvable: enumerated ${#want}, skipped $skipped"; print unreadable_or_unparsable; return; }
+  (( skipped == 0 )) || print -u2 "note: $skipped home(s) skipped for unsafe characters; rules not verified for them"
+
   sudo test -e "$db" || { print ccc_db_missing; return; }
   [[ "$UUID" =~ ^[0-9A-Fa-f-]{36}$ ]] || { print unreadable_or_unparsable; return; }
   for p in $want; do
     [[ "$p" == *\'* ]] && { print unreadable_or_unparsable; return; }
     vals+="${vals:+,}('$p')"
   done
-  out=$(sudo sqlite3 -readonly -list -noheader -cmd ".timeout 5000" "$db" "with rules(p) as (values $vals) select (select count(*) from TASK where UUID='$UUID'), (select coalesce(max(length(SETTINGS)),0) from TASK where UUID='$UUID'), (select count(*) from rules where exists (select 1 from TASK where UUID='$UUID' and instr(SETTINGS,cast(p as blob))>0 and cast(substr(SETTINGS, instr(SETTINGS,cast(p as blob))+length(cast(p as blob)), 1) as text) not glob '[A-Za-z0-9/._ -]'));" 2>&1); rc=$?
+
+  # Diagnostics go to a file, never into the parsed value: piping 2>&1 into a variable turns
+  # lock noise into a string that satisfies no branch and reports a state that was never measured.
+  errf=$(mktemp) || { print unreadable_or_unparsable; return; }
+  until out=$(sudo sqlite3 -readonly -list -noheader -cmd ".timeout 8000" "$db" "with rules(p) as (values $vals) select (select count(*) from TASK where UUID='$UUID'), (select coalesce(max(length(SETTINGS)),0) from TASK where UUID='$UUID'), (select count(*) from rules where exists (select 1 from TASK where UUID='$UUID' and instr(SETTINGS,cast(p as blob))>0 and cast(substr(SETTINGS, instr(SETTINGS,cast(p as blob))+length(cast(p as blob)), 1) as text) not glob '[A-Za-z0-9/._ -]'));" 2>"$errf"); rc=$?; (( rc == 0 )); do
+    (( ++tries >= 3 )) && break
+    sleep $(( tries * 2 ))
+  done
+  [[ -s "$errf" ]] && print -u2 "sqlite note: $(<"$errf")"
+  rm -f "$errf"
+
   [[ $rc == 0 && "$out" =~ ^[0-9]+\|[0-9]+\|[0-9]+$ ]] || { print unreadable_or_unparsable; return; }
   rows=${out%%|*}; rest=${out#*|}; len=${rest%%|*}; hits=${rest#*|}
   (( rows == 1 )) || { print task_missing; return; }
@@ -261,33 +332,43 @@ do_verify(){
 
 # ------------------------------------------------------------------ gate ----
 do_gate(){
-  local S=$ST exc aud fire runs llok mpath guard pki doc bad=0
+  local S=$ST exc aud fire runs llok mpath guard pki page bad=0
   [[ -r $S ]] || { bad "state file missing — run: $0 refresh"; return 1; }
   exc=$(awk -F= '/^ccc_exclusion_set/{print $2}' "$S")
   aud=$(awk -F= '/^audit_script_state/{print $2}' "$S")
   fire=$(awk -F= '/^launchd_fired/{print $2}' "$S")
-  runs=$(awk -F= '/^launchd_runs/{print $3; exit}' "$S")
   runs=$(awk -F= '/^launchd_runs/{print $2}' "$S")
   llok=$(awk -F= '/^pki_log_path/{print $2}' "$S")
 
-  [[ -r /usr/local/var/log/ccc-pki-audit.state ]] && \
-    pki=$(grep -q 'pki_audit_rc=1' /usr/local/var/log/ccc-pki-audit.state && echo EXPOSED || echo clean) || pki=unknown
+  # The state value is the last refresh's answer, not a fresh one, so say how old it is rather
+  # than implying the gate measured CCC just now.
+  local sgen sadj; sgen=$(awk -F= '/^generated_epoch/{print $2}' "$S"); sadj=$(( EPOCHSECONDS - ${sgen:-0} ))
+
+  # pki_audit_rc is a verdict code: 0 clean, 1 exposure, 2 could not check. The previous test
+  # was an unanchored substring grep for rc=1, which matched 10/12/127 and missed 2, so a real
+  # exposure coded 2 read clean and passed this gate.
+  if [[ -r $ASTATE ]]; then
+    pki=$(awk -F= '/^pki_audit_rc/{print ($2==0?"clean":($2==1?"exposure":($2==2?"could_not_check":"unknown_code")))}' "$ASTATE" 2>/dev/null)
+    pki=${pki:-malformed}
+    page=$(( EPOCHSECONDS - ${$(awk -F= '/^generated_epoch/{print $2}' "$ASTATE"):-0} ))
+  else pki=no_state; page=-1; fi
   mpath=$(plutil -extract StandardOutPath raw "$MONPL" 2>/dev/null) || mpath=missing
 
   guard=no
   [[ -e $ARCH ]] && grep -q '^# STALE PLIST guard' "$ARCH" && guard=yes
 
   print -r -- "================ M5 pre-update security gate ================"
-  [[ "$exc"  == set       ]] && ok  "ccc_exclusion_set=set (three rules in this task's CCC settings; Exclude action not checked)" || { bad  "ccc_exclusion_set=$exc — CCC UI, task ${UUID:0:8}, Ignore list: /opt/homebrew/var/lib/caddy ; /Users/<LOCAL-USERNAME>/Library/Application Support/Caddy ; /Users/<LOCAL-USERNAME>/Backups/caddy-pki-backup.zip.enc"; bad=1; }
+  [[ "$exc"  == set       ]] && ok  "ccc_exclusion_set=set (${sadj}s old; rule paths present in this task's CCC settings; Exclude action not checked)" || { bad  "ccc_exclusion_set=$exc (${sadj}s old) — CCC UI, task ${UUID:0:8}, Ignore list must hold the Homebrew Caddy dir, each local user's Library/Application Support/Caddy, and each user's Backups/caddy-pki-backup.zip.enc"; bad=1; }
   [[ "$aud"  == installed ]] && ok  "tripwire installed (root:wheel /usr/local/sbin)" || { bad  "tripwire $aud"; bad=1; }
   [[ "$fire" == yes       ]] && ok  "tripwire fired (runs=$runs)"                  || { bad  "tripwire never fired"; bad=1; }
   [[ "$llok" != /tmp/* && "$llok" != none ]] && ok "tripwire log path persistent"   || { bad  "tripwire log path $llok — /tmp is cleared at boot and reaped ~3d"; bad=1; }
-  # The audit exits before writing its state file when the clone is not mounted, so "clean" in that file can be stale.
-  # Report what was actually checked: EXPOSED fails; an unmounted or unreadable result is NOT_CHECKED (a WARN, never a PASS).
-  if   [[ "$pki" == EXPOSED ]]; then bad "live clone PKI EXPOSED"; bad=1
-  elif ! mount | grep -q " on $CLONE "; then warn "live clone PKI: NOT_CHECKED (destination not mounted)"
-  elif [[ "$pki" != clean ]]; then warn "live clone PKI: NOT_CHECKED (audit state $pki)"
-  else ok "live clone PKI: clean (covers only the Homebrew pki directory; the per-user Caddy directory is not checked)"; fi
+  # Mount is decided first: an absent destination is NOT_CHECKED whether the stored verdict is
+  # clean or exposure, so neither a stale clean passes nor a stale exposure blocks.
+  if   ! clone_mounted "$CLONE"; then warn "live clone PKI: NOT_CHECKED (destination not mounted; stored verdict: $pki)"
+  elif [[ "$pki" == exposure ]];  then bad  "live clone PKI EXPOSED (audit verdict, ${page}s old)"; bad=1
+  elif [[ "$pki" == clean ]];   then ok   "live clone PKI: clean (${page}s old; covers only the Homebrew pki directory; the per-user Caddy directory is not checked)"
+  else                               warn "live clone PKI: NOT_CHECKED (audit state $pki)"
+  fi
   [[ "$mpath" != /tmp/*   ]] && ok  "macmonitor log path ok"                   || { bad  "macmonitor logs to /tmp — stale pre-2026-11-07 plist"; bad=1; }
   [[ "$guard" == yes      ]] && ok  "interim-archive stale-plist guard present"     || warn "interim-archive guard missing"
   sudo -n -l /usr/local/bin/run-powermetrics >/dev/null 2>&1 && ok "sudoers grant present" || warn "sudoers grant absent — re-verify after update"
@@ -298,9 +379,10 @@ do_gate(){
     grep -q 'mbp_monitor_508'  "$DOC" && warn "$DOC: references deleted src/mbp_monitor_508.py"
   fi
 
-  warn "manual: ccc_exclusion_set shows the three paths exist in this task's CCC settings, not that the action is Exclude; confirm in the CCC window, and the first clone run is the functional proof"
+  warn "manual: ccc_exclusion_set shows the rule paths exist in this task's CCC settings, not that the action is Exclude; confirm in the CCC window. A completed run holding none of the source's Caddy private material is the functional proof of the exclusion's effect."
   warn "manual: Startup Manager boot test for the clone (single roleless APFS volume — plan file-level restore from Recovery)"
   warn "manual: retired M5CCC destination unaccounted — assumed exposed"
+  warn "coverage: this gate checks the Homebrew Caddy pki directory only; the per-user Caddy CA roots, leaf keys named from their SAN, and the encrypted PKI backup are not inspected by any scheduled check"
 
   print -r -- "=============================================================="
   (( bad )) && print -r -- "GATE: BLOCKED" || print -r -- "GATE: CLEAN"
@@ -313,8 +395,8 @@ case "${1:-all}" in
   refresh) do_refresh ;;
   verify)  do_verify ;;
   gate)    do_gate ;;
-  emit)    run_emitter "$(mount | grep -q ' on <CLONE-VOLUME> ' && echo absent || echo unknown_clone_unmounted)" "$(awk -F= '/^pki_log_path/{print $2}' $ST 2>/dev/null)" "$(plutil -extract StandardOutPath raw $MONPL 2>/dev/null || echo missing)" "$([[ -e $ARCH ]] && grep -q '^# STALE PLIST guard' $ARCH && echo yes || echo no)" ;;
-  merge)   run_emitter "$(mount | grep -q ' on <CLONE-VOLUME> ' && echo absent || echo unknown_clone_unmounted)" "$(awk -F= '/^pki_log_path/{print $2}' $ST 2>/dev/null)" "$(plutil -extract StandardOutPath raw $MONPL 2>/dev/null || echo missing)" "$([[ -e $ARCH ]] && grep -q '^# STALE PLIST guard' $ARCH && echo yes || echo no)" merge "$2" ;;
+  emit)    run_emitter "$(clone_mounted "$CLONE" && echo absent || echo unknown_clone_unmounted)" "$(awk -F= '/^pki_log_path/{print $2}' $ST 2>/dev/null)" "$(plutil -extract StandardOutPath raw $MONPL 2>/dev/null || echo missing)" "$([[ -e $ARCH ]] && grep -q '^# STALE PLIST guard' $ARCH && echo yes || echo no)" ;;
+  merge)   run_emitter "$(clone_mounted "$CLONE" && echo absent || echo unknown_clone_unmounted)" "$(awk -F= '/^pki_log_path/{print $2}' $ST 2>/dev/null)" "$(plutil -extract StandardOutPath raw $MONPL 2>/dev/null || echo missing)" "$([[ -e $ARCH ]] && grep -q '^# STALE PLIST guard' $ARCH && echo yes || echo no)" merge "$2" ;;
   all)     do_refresh && do_verify && do_gate ;;
   *)       print -u2 "usage: $0 [all|install|refresh|verify|gate|emit|merge FILE]"; exit 2 ;;
 esac
