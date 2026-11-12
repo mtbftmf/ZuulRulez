@@ -48,7 +48,7 @@ orphans() {
         print "DRIFT: orphan job $label: $exe does not exist ($p)"; continue
       fi
       runuser=$(plutil -extract UserName raw -o - "$p" 2>/dev/null)
-      perm=$(stat -f %Sp "$exe" 2>/dev/null)
+      perm=$(stat -L -f %Sp "$exe" 2>/dev/null)
       if [[ -z "$runuser" || "$runuser" == root ]]; then
         [[ "${perm[4]}" == (x|s) ]] || { print "DRIFT: orphan job $label: $exe not owner-executable ($perm, runs as root) ($p)"; continue; }
       elif [[ "$runuser" == "$USER" ]]; then
