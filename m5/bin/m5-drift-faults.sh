@@ -22,10 +22,10 @@ print -r -- "repo head $(git -C "$repo" rev-parse --short HEAD 2>/dev/null || pr
 selftest() {
   local text mut i out bad=0
   local -a ids names olds news
-  ids=(2a 1 4 5 3 1b)
-  names=("control-origin exclusion removed" "interpreter-script test removed" "coverage row removed" "shrink handling removed" "stale-root row removed" "missing-program test removed")
-  olds=(" | grep -v 'example\\.invalid'" '[[ "$a" == /* && ! -e "$a" ]]' '(( ${${=OWUI_ORIGINS}[(Ie)$o]} )) ||' 'as new"; prev=0' '[[ "$h" == "$live" ]] || print "DRIFT: stale Caddy root' 'if [[ "$exe" == /* && ! -x "$exe" ]]; then')
-  news=("" 'false' 'true ||' 'as new"; :' 'true || print "DRIFT: stale Caddy root' 'if false; then')
+  ids=(2a 1 4 5 3 1b 1c 1d)
+  names=("control-origin exclusion removed" "interpreter-script test removed" "coverage row removed" "shrink handling removed" "stale-root row removed" "missing-program check removed" "exec-bit read removed" "symlink target not followed")
+  olds=(" | grep -v 'example\\.invalid'" '[[ "$a" == /* && ! -e "$a" ]]' '(( ${${=OWUI_ORIGINS}[(Ie)$o]} )) ||' 'as new"; prev=0' '[[ "$h" == "$live" ]] || print "DRIFT: stale Caddy root' 'if [[ "$exe" == /* ]]; then' 'perm=$(stat -L -f %Sp "$exe" 2>/dev/null)' 'stat -L -f')
+  news=("" 'false' 'true ||' 'as new"; :' 'true || print "DRIFT: stale Caddy root' 'if false; then' 'perm=$(echo -rwxr-xr-x)' 'stat -f')
   text=$(<"$DRIFT")
   for i in {1..$#ids}; do
     mut=${text/"${olds[i]}"/"${news[i]}"}
@@ -42,7 +42,7 @@ selftest() {
 }
 [[ "${1:-}" == --self-test ]] && selftest
 
-export OWUI_ERR_LOG=$D/err.log DRIFT_REJ_STATE=$D/rej
+export OWUI_ERR_LOG=$D/err.log DRIFT_REJ_STATE=$D/rej DRIFT_BASELINE=$D/baseline
 fails=0 npass=0 nquiet=0
 
 # On a FAIL, show the values the script actually resolved (existence of a name proves nothing: an env file can
@@ -66,6 +66,7 @@ step() {
 }
 
 mkdir "$D/p"
+[[ -f "$HOME/.local/state/m5-drift/baseline" ]] && cp "$HOME/.local/state/m5-drift/baseline" "$D/baseline"
 printf '%s\n' 'https://seed.test:8443 is not an accepted origin.' > "$D/err.log"
 cat > "$D/p/orphan.plist" <<'P'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -83,6 +84,27 @@ cat > "$D/p/missing.plist" <<'P'
 <key>ProgramArguments</key><array><string>/nonexistent/gone-daemon</string></array>
 </dict></plist>
 P
+mkdir -p "$D/bin"
+printf '%s\n' '#!/bin/sh' > "$D/bin/fakejob"
+chmod 0444 "$D/bin/fakejob"
+ln -s "$D/bin/fakejob" "$D/bin/fakelink"
+cat > "$D/p/noexec.plist" <<P
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>Label</key><string>com.test.noexec</string>
+<key>Program</key><string>$D/bin/fakejob</string>
+</dict></plist>
+P
+cat > "$D/p/fakelink.plist" <<P
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>Label</key><string>com.test.fakelink</string>
+<key>Program</key><string>$D/bin/fakelink</string>
+</dict></plist>
+P
+
 cat > "$D/owui.plist" <<'P'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -95,7 +117,11 @@ step "0a cold start rebaselines and does not replay the seed line" 'rejection st
 step "0b everything else is clean (output must be empty)" EMPTY ''
 step "1  orphan job: script behind an interpreter" 'orphan job com\.test\.orphan: script /tmp/does-not-exist\.sh is missing' '' \
   "DRIFT_PLIST_DIRS=$D/p /Library/LaunchDaemons /Library/LaunchAgents $HOME/Library/LaunchAgents"
-step "1b orphan job: the program itself is missing" 'orphan job com\.test\.missing: /nonexistent/gone-daemon is missing or not executable' '' \
+step "1b orphan job: the program itself is missing" 'orphan job com\.test\.missing: /nonexistent/gone-daemon does not exist' '' \
+  "DRIFT_PLIST_DIRS=$D/p /Library/LaunchDaemons /Library/LaunchAgents $HOME/Library/LaunchAgents"
+step "1c root-run program present but not owner-executable" 'orphan job com\.test\.noexec: .*not owner-executable' '' \
+  "DRIFT_PLIST_DIRS=$D/p /Library/LaunchDaemons /Library/LaunchAgents $HOME/Library/LaunchAgents"
+step "1d symlinked program judged by its target, not by the link" 'orphan job com\.test\.fakelink: .*not owner-executable' '' \
   "DRIFT_PLIST_DIRS=$D/p /Library/LaunchDaemons /Library/LaunchAgents $HOME/Library/LaunchAgents"
 printf '%s\n' 'https://example.invalid is not an accepted origin.' >> "$D/err.log"
 step "2a control origin alone is not counted" ANY 'refused|example\.invalid'
