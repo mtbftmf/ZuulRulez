@@ -59,7 +59,8 @@ note(){ print -r -- "      $1"; }
 clone_mounted(){
   local l r
   while IFS= read -r l; do
-    r=${l#* on }; r=${r% (*}
+    r=${l#* on }
+    r=${r%%' ('*}
     [[ "$r" == "$1" ]] && return 0
   done < <(mount)
   return 1
@@ -225,16 +226,20 @@ run_emitter(){
 ccc_rules_state(){
   local db=$1 out rc rows rest len hits p vals="" tries=0 skipped=0 errf
   local -a want
-  want=(/opt/homebrew/var/lib/caddy)
-  local h un
+  local h un seen=0
+  [[ -d /opt/homebrew/var/lib/caddy ]] && want+=(/opt/homebrew/var/lib/caddy)
   for h in /Users/*(N-/); do
     un=${h:t}
-    [[ $un == (Shared|Guest) || $un == .* || $un == *[\'\"\ ]* ]] && { (( skipped++ )); continue }
-    want+=("/Users/$un/Library/Application Support/Caddy")
-    want+=("/Users/$un/Backups/caddy-pki-backup.zip.enc")
+    if [[ $un == (Shared|Guest) || $un == .* || $un == *[\'\"\ ]* ]]; then (( skipped++ )); continue; fi
+    (( seen++ ))
+    [[ -d "$h/Library/Application Support/Caddy" ]] && want+=("/Users/$un/Library/Application Support/Caddy")
+    [[ -e "$h/Backups/caddy-pki-backup.zip.enc"  ]] && want+=("/Users/$un/Backups/caddy-pki-backup.zip.enc")
   done
-  (( ${#want} >= 3 )) || { print -u2 "rule paths unresolvable: enumerated ${#want}, skipped $skipped"; print unreadable_or_unparsable; return; }
-  (( skipped == 0 )) || print -u2 "note: $skipped home(s) skipped for unsafe characters; rules not verified for them"
+  # A rule is demanded only where source material exists: asking CCC about homes that hold no
+  # Caddy material produces a true-looking partial and a FAIL with nothing wrong. Skipped and
+  # examined counts are printed so a change in shape is visible rather than silently clean.
+  print -u2 "coverage: $seen home(s) examined, $skipped skipped, ${#want} source path(s) require a rule"
+  (( ${#want} > 0 )) || { print -u2 'no Caddy material on the source: the question is vacuous, not clean'; print unreadable_or_unparsable; return; }
 
   sudo test -e "$db" || { print ccc_db_missing; return; }
   [[ "$UUID" =~ ^[0-9A-Fa-f-]{36}$ ]] || { print unreadable_or_unparsable; return; }
