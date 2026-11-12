@@ -196,7 +196,7 @@ check_emitter(){
   [[ -f $ref ]] || { bad "repo emitter missing: $ref"; return 1; }
   refc=$(<"$ref"); binc=$(<"$XTRA")
   (( ${#refc} > 0 )) || { bad "repo emitter is empty: $ref"; return 1; }
-  [[ "${binc//"$CLONE"/$tok}" == "$refc}" ]] \
+  [[ "${binc//"$CLONE"/$tok}" == "$refc" ]] \
     && ok "emitter matches m5/bin/canary-extras.sh (volume token masked)" \
     || { bad "$XTRA differs from m5/bin/canary-extras.sh beyond the volume token"; return 1; }
 }
