@@ -56,12 +56,7 @@ drift passes by construction until the next state change. Patching m5-drift.sh
 needs no snapshot: the script's own source is not a baseline fact.
 
 ### ~/bin inventory
-12 regular files, 18 symlinks, 1 directory. An earlier real=13 is not
-reproducible; treat as an open one-file discrepancy rather than a corrected
-figure. The inventory loop must glob both ~/bin/*(N.) and ~/bin/*(N@) or links
-are invisible. DIFFER is expected for exactly two names, m5-secops.sh and
-canary-extras.sh, because cmp cannot mask the clone-volume token; only a masked
-compare reads identical, and a third DIFFER is a finding [1].
+12 regular files, 18 symlinks, 1 directory. An earlier real=13 is not reproducible; treat it as an open one-file discrepancy, not a corrected figure: one file left `~/bin` and its disposition is not established, so do not write that it was archived or deleted. Against the repo, The inventory loop must glob both `~/bin/*(N.` and `~/bin/*(N@)` or links are invisible. `DIFFER` is expected for exactly two names, `m5-secops.sh` and `canary-extras.sh`, because `cmp` cannot mask the clone-volume token, so those two read `DIFFER` permanently and only a masked compare reads identical; a third `DIFFER` is a finding [1]. Against the repo, 18 symlinks plus the 4 regular files that have repo counterparts gives 22 deployed files; the reconciliation is what makes the count meaningful, not the count itself.
 
 ### macmonitor.err cadence
 The NSXPCSharedListener com.apple.view-bridge Connection interrupted lines are
@@ -119,12 +114,8 @@ and requires the matching step to FAIL (`CAUGHT`); `NOT APPLIED` and `MISSED` bo
 - Silence is not evidence. Five checks on Nov 12 reported success while examining nothing: an empty diff grepped for `CLEAN`, a null-glob `ls` that listed the repo instead of `~/bin`, a self-test mutation whose anchor had drifted, a Trash grep printing fallback text after `Operation not permitted`, and a doc patch read as done because it raised no traceback. Exit status and absence are not verdicts; print the positive artifact.
 - The identity line names the harness hash, the checker hash, the repo head and the number of uncommitted files in
   `m5/bin`; `0` means the bytes tested are the committed ones.
-- Not covered by design: the listener half of the baseline diff, the coverage `WARN` in the reverse direction, and
-  any fault nobody has written a step for. To add one: a `step` with a positive pattern, one entry in each of the three
-  parallel arrays in `selftest()` (a mutation that makes the step FAIL while the copy stays valid zsh), and the header
-  comment.
-- `snapshot` refuses while `DRIFT_PLIST_DIRS`, `CADDY_ROOT` or `DRIFT_KEYCHAIN` is overridden
-  (`DRIFT_SNAPSHOT_FORCE=1` to force), so a temp path cannot enter the baseline.
+- Not covered by design: the listener half of the baseline diff, the coverage `WARN` in the reverse direction, and any fault nobody has written a step for. Three limits are design, not bugs: the baseline records that a port listens, not which process holds it, because naming the holder needs privileges the watcher does not have; the `com.google.*` and `com.microsoft.*` skip drops those labels' rows entirely; and a parse-failure path in the checker has no harness step, so it is untested rather than known-good. To add one takes five pieces, not three: a `step` with a positive pattern, one entry in each parallel array in `selftest()`, a mutation that makes that step FAIL while the copy stays valid zsh, the step count in the prose, and the header comment. The header comment is the piece that gets skipped: on Nov 12 it still read `five ways` at line 5 and `six ways` at line 20 while `selftest()` carried eight entries. Fixing it alone re-hashes the harness and orphans the hash named in this file's identity line, so it rides with the next functional change.
+- `snapshot` refuses while `DRIFT_PLIST_DIRS`, `CADDY_ROOT` or `DRIFT_KEYCHAIN` is overridden (`DRIFT_SNAPSHOT_FORCE=1` to force), so a temp path cannot enter the baseline.
 
 ## 4. Applying patches
 
