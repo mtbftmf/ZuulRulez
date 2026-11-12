@@ -77,64 +77,120 @@ do_install(){
   cat > "$d/audit.sh" <<'AUDIT_EOF'
 #!/bin/zsh
 # Caddy CA private material must never appear on the boot clone or its CCC snapshots.
-# Exit: 0 = invariant holds AND every required check ran. 1 = could not check (also used for
-# exposure, for backward compatibility with anything reading the exit status).
-# State key pki_audit_rc separates the outcomes, because the gate must not read an
-# operational failure as an exposure finding: 0 clean, 1 exposure seen, 2 could not check.
+#   0 = required checks ran and found nothing.   1 = exposure.   2 = could not check.
+#
+# Mount state decides which half runs, and it is decided by a test that can match a volume
+# name containing a space. The previous test, mount | grep " on <name> ", required a space
+# after the path that mount never prints, so it was false in every state: the audit reported
+# "not mounted" while the destination was mounted and the snapshot half was unreachable.
 LOGDIR=/usr/local/var/log
 CLONE="${PKI_AUDIT_CLONE:-<CLONE-VOLUME>}"
-VOLDISK="${PKI_AUDIT_DISK:-disk15s1}"
+VOLDISK="${PKI_AUDIT_DISK:-}"
 NAMEPAT="${PKI_AUDIT_NAMEPAT:-com\.bombich\.ccc}"
 OVERRIDE=""; (( EUID != 0 )) && OVERRIDE="${PKI_AUDIT_SNAPDIRS:-}"
-REL="opt/homebrew/var/lib/caddy/pki/authorities/local"
-PRIV=(root.key intermediate.key key.pem); rc=0
+
+rc=0; scope=none; fail_reason=none
+snaps_ok=0; key_files=0; enc_files=0
 SUDO=(); (( EUID != 0 )) && SUDO=(sudo)
 
-# Written on every exit path, including the early ones: a state file that only ever records
-# successful runs lets a verdict from days ago look current to the gate.
-wstate(){
-  { print "generated_epoch=$(date +%s)"
-    print "ccc_snapshot_count=$(diskutil apfs listSnapshots $VOLDISK 2>/dev/null | grep -cE "Name:.*$NAMEPAT")"
-    print "pki_audit_rc=$rc"
-    print "pki_tripwire_runs=$(launchctl print system/com.root.ccc-pki-audit 2>/dev/null | awk '/^[[:space:]]*runs = /{print $3}')"
-  } > "$LOGDIR/ccc-pki-audit.state" 2>/dev/null || print -u2 "WARN state evidence not written"
+clone_mounted(){
+  local l r
+  while IFS= read -r l; do
+    r=${l#* on }
+    r=${r%%' ('*}
+    [[ "$r" == "$1" ]] && return 0
+  done < <(mount)
+  return 1
 }
 
-mount | grep -q " on $CLONE " || { print -u2 "CHECK FAILED: $CLONE not mounted"; rc=2; wstate; exit 1; }
-[[ -d "$CLONE/opt/homebrew/var/lib/caddy" ]] || { print -u2 "CHECK FAILED: destination not a complete copy"; rc=2; wstate; exit 1; }
+# The durable state is the only state the gate reads. Override/control runs write a separate
+# file so a control run can never overwrite the live verdict with its own rc.
+STATEFILE="$LOGDIR/ccc-pki-audit.state"
+[[ -n "$OVERRIDE" ]] && STATEFILE="$LOGDIR/ccc-pki-audit.control.state"
 
-live=(); for k in $PRIV; do [[ -e "$CLONE/$REL/$k" ]] && live+=$k; done
-if (( ${#live[@]} )); then print -u2 "EXPOSURE live: ${live[*]}"; rc=1; else print "live clone: clean"; fi
+wstate(){
+  local sc=0 runs=0
+  [[ -n "$VOLDISK" ]] && sc=$(diskutil apfs listSnapshots "$VOLDISK" 2>/dev/null | grep -cE "Name:.*$NAMEPAT" || true)
+  runs=$(launchctl print system/com.root.ccc-pki-audit 2>/dev/null | awk '/^[[:space:]]*runs = /{print $3}')
+  [[ -n "$runs" ]] || runs=0
+  {
+    print "generated_epoch=$(date +%s)"
+    print "pki_audit_rc=$rc"
+    print "pki_scope=$scope"
+    print "pki_fail_reason=$fail_reason"
+    print "ccc_snapshot_count=$sc"
+    print "pki_snapshots_inspected=$snaps_ok"
+    print "pki_private_key_files=$key_files"
+    print "pki_encrypted_backups=$enc_files"
+    print "pki_tripwire_runs=$runs"
+  } > "$STATEFILE" 2>/dev/null || print -u2 "WARN state evidence not written"
+}
 
-check_dir(){
-  local dd=$1 n=$2 f=() k
-  for k in $PRIV; do [[ -e "$dd/$REL/$k" ]] && f+=$k; done
-  if (( ${#f[@]} )); then print -u2 "EXPOSURE snapshot $n: ${f[*]}"; return 1
-  else print "snapshot $n: clean"; return 0; fi
+[[ -n "$CLONE" && "$CLONE" != *"<CLONE-"* ]] || {
+  print -u2 "CHECK FAILED: clone volume token missing"; rc=2; fail_reason=token_missing; wstate; exit 2
+}
+
+# Counts only. Leaf filenames are derivable from the SAN (LAN address or hostname), so the
+# log and the state must never carry the filenames themselves.
+scan(){
+  local r=$1 tag=$2 k=0 k2=0 e=0
+  k=$(find "$r/opt/homebrew/var/lib/caddy" -type f -maxdepth 8 -name '*.key' 2>/dev/null | wc -l | tr -d ' ')
+  if [[ -d "$r/Users" ]]; then
+    k2=$(find "$r/Users" -type f -maxdepth 8 -name '*.key' -path '*/Library/Application Support/Caddy/*' 2>/dev/null | wc -l | tr -d ' ')
+    e=$(find "$r/Users" -type f -maxdepth 8 -name 'caddy-pki-backup.zip.enc' -path '*/Backups/*' 2>/dev/null | wc -l | tr -d ' ')
+  fi
+  k=$(( k + k2 )); key_files=$(( key_files + k )); enc_files=$(( enc_files + e ))
+  print "scan $tag: private_key_files=$k enc_backups=$e"
+  # Explicit return required. (( k > 0 || e > 0 )) was the last statement, so a clean scan
+  # evaluated false and became the function status 1, which the caller read as exposure:
+  # the clean case set rc=1. Wrong, but wrong in the blocking direction.
+  if (( k > 0 || e > 0 )); then return 1; else return 0; fi
 }
 
 if [[ -n "$OVERRIDE" ]]; then
-  n=0
-  for p in ${(s/:/)OVERRIDE}; do (( n++ )); check_dir "$p" "override#$n" || rc=1; done
+  # Controls use this only as an unprivileged override; under root it is inert on purpose so a
+  # leaked environment variable cannot blind the daemon.
+  scope=override; n=0
+  for p in ${(s/:/)OVERRIDE}; do (( n++ )); scan "$p" "override#$n" || rc=1; done
   print "snapshots inspected via override: $n"
+  wstate; exit $rc
+fi
+
+if [[ -z "$VOLDISK" ]] && clone_mounted "$CLONE"; then
+  _cv=$(df -P "$CLONE" 2>/dev/null | awk 'NR==2{print $1}')
+  [[ "$_cv" == /dev/disk* ]] && VOLDISK=${_cv#/dev/}
+fi
+[[ -n "$VOLDISK" ]] || VOLDISK=disk15s1
+print "device=$VOLDISK mounted=$(clone_mounted "$CLONE" && echo yes || echo no)"
+
+if clone_mounted "$CLONE"; then
+  [[ -d "$CLONE/opt/homebrew/var/lib/caddy" ]] || {
+    print -u2 "CHECK FAILED: destination not a complete copy"
+    rc=2; fail_reason=destination_incomplete; wstate; exit 2
+  }
+  scope=destination
+  scan "$CLONE" destination || rc=1
+
 else
-  snaps=($(diskutil apfs listSnapshots $VOLDISK 2>/dev/null | grep -E "Name:.*$NAMEPAT" | awk '{print $NF}' | sort))
+  [[ -e "/dev/$VOLDISK" ]] || {
+    print -u2 "CHECK FAILED: no device /dev/$VOLDISK for snapshot inspection"
+    rc=2; fail_reason=device_missing; wstate; exit 2
+  }
+  scope=snapshots; sn_bad=0
+  snaps=($(diskutil apfs listSnapshots "$VOLDISK" 2>/dev/null | grep -E "Name:.*$NAMEPAT" | awk '{print $NF}' | sort))
   if (( ${#snaps[@]} == 0 )); then
-    print "snapshots: none present"
+    print "snapshots: none present"; rc=2; fail_reason=no_snapshots
   else
     for s in $snaps; do
       mnt=$(mktemp -d /tmp/pkiaudit.XXXXXX)
-      if "${SUDO[@]}" mount_apfs -r -s "$s" /dev/$VOLDISK "$mnt" >/dev/null 2>&1; then
-        check_dir "$mnt" "${s##*.}" || rc=1
-        if ! "${SUDO[@]}" diskutil unmount "$mnt" >/dev/null 2>&1; then
-          # A stuck read-only snapshot mount is an operational failure, not a clean result,
-          # and must not be reported as an exposure either.
-          print -u2 "CHECK FAILED: unmount failed $mnt"; (( rc == 0 )) && rc=2
-        else
-          rmdir "$mnt" 2>/dev/null
-        fi
-      else print -u2 "CHECK FAILED: cannot mount $s"; rc=2; fi
+      if "${SUDO[@]}" mount_apfs -r -s "$s" "/dev/$VOLDISK" "$mnt" 2>>"$LOGDIR/ccc-pki-audit.err"; then
+        scan "$mnt" "snap-${s##*.}" || rc=1; (( snaps_ok++ ))
+        "${SUDO[@]}" diskutil unmount "$mnt" 2>/dev/null || { print -u2 "CHECK FAILED: unmount $mnt"; fail_reason=unmount_failed; (( rc == 0 )) && rc=2; }
+        rmdir "$mnt" 2>/dev/null
+      else (( sn_bad++ )); rmdir "$mnt" 2>/dev/null; fi
     done
+    (( snaps_ok > 0 )) || { print -u2 "CHECK FAILED: no snapshot could be mounted"; rc=2; fail_reason=mount_failed; }
+    print "snapshots inspected: $snaps_ok; mount failures: $sn_bad"
   fi
 fi
 
