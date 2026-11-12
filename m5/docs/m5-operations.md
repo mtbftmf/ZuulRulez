@@ -108,12 +108,15 @@ problem the harness solves: a broken check and a clean machine look the same.
 
 `m5-drift-faults.sh` builds a temp directory, injects one known fault per step, runs the real checker against it and
 prints the raw output before each verdict. PASS is a positive match, QUIET means silence was the expectation, FAIL is
-wrong output; it exits 1 on a FAIL, a SKIP, or when no PASS fired. `--self-test` copies the checker, breaks it six ways
-and requires the matching step to FAIL (`CAUGHT`); `NOT APPLIED` and `MISSED` both fail the run.
+wrong output; it exits 1 on a FAIL, a SKIP, or when no PASS fired. `--self-test` copies the checker, breaks it eight ways (control-origin exclusion, interpreter-script test, coverage row, shrink handling, stale-root row, missing-program check, exec-bit read, symlink target)
+and requires the matching step to FAIL (`CAUGHT`); `NOT APPLIED` and `MISSED` both fail the run. Current: 9 PASS, 2 QUIET, 8 CAUGHT (harness a860dbb50264, checker f0a6668afd99). A step with no discriminating mutation proves nothing, and the harness matches the checker's message strings literally, so renaming a drift message is also a harness edit: on Nov 12 the new orphan wording left `1b` failing while `--self-test` reported `NOT APPLIED`, proof that mutation had not run since 7b775ea.
 
 - Run it after any edit to `m5-drift.sh` and after a macOS update (steps that write plists need the macOS `plutil`).
   It verifies the checker and is not a monitor, so it does not run on a schedule.
-- Check that it left live state alone: hash the baseline directory before and after both runs.
+- It exports `DRIFT_BASELINE=$D/baseline` and copies the production baseline into that scratch copy, so a stray `snapshot` cannot rewrite live state and inherited `DRIFT_*`/`OWUI_*` values cannot change the result. The copy matters: an empty scratch baseline makes every real fact read `new since baseline` and fails step `0b`. Hashing the baseline before and after is still the check that this holds; archive copy of the 22-fact baseline is `~/scripts/archive/2026-11-12-drift-baseline-22facts`.
+- Step `3` is not fully hermetic: its stale-root row depends on the baseline still holding `2DFBB4E3...`, while the harness mints a fresh root every run. If a re-snapshot drops that hash, step `3` needs review.
+- Rootless limit: `smcwrite`'s condition (root-owned, 0544, executable by owner and not by other) cannot be built without root, so the run-user distinction rests on inspection plus the live case, and the `perm=` mutation fails `1c` and `1d` together because they share one permission read.
+- Silence is not evidence. Five checks on Nov 12 reported success while examining nothing: an empty diff grepped for `CLEAN`, a null-glob `ls` that listed the repo instead of `~/bin`, a self-test mutation whose anchor had drifted, a Trash grep printing fallback text after `Operation not permitted`, and a doc patch read as done because it raised no traceback. Exit status and absence are not verdicts; print the positive artifact.
 - The identity line names the harness hash, the checker hash, the repo head and the number of uncommitted files in
   `m5/bin`; `0` means the bytes tested are the committed ones.
 - Not covered by design: the listener half of the baseline diff, the coverage `WARN` in the reverse direction, and

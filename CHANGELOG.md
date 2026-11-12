@@ -3,6 +3,12 @@
 Newest first. Entries before Oct 16, 2026 were reconstructed from chat history.
 
 ## 2026-11-12
+- harness: match the new orphan strings, add steps 1c (root-run program not owner-executable) and 1d
+  (symlinked program judged by its target), and pin `DRIFT_BASELINE` to a scratch copy of the production
+  baseline (09c0868). `--self-test` now breaks the checker eight ways; the sixth mutation had reported
+  `NOT APPLIED` since 7b775ea, so it had not actually run. Studio run with the macOS `plutil`: `PASS=9
+  QUIET=2 FAIL=0`, 8 CAUGHT, baseline untouched at 22 facts, `m5-drift.sh` silent. This supersedes the
+  Nov 6 caveat that steps 1 and 4 had no live-`plutil` proof.
 - drift: orphan check tests the exec bit matching the job's run user (7b775ea)
 - drift: judge a symlinked program by its target (af7b748)
 - secops: audit reads the mounted clone and all three protected paths (38462d6);
