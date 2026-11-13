@@ -4,6 +4,8 @@
   python3 flash-ctx2-test.py --stage 1     two 100K-token prompts on Flash at the same time
   python3 flash-ctx2-test.py --stage 2     one 150K prompt on Flash plus one 24K prompt on Gemma at the same time
   python3 flash-ctx2-test.py --stage 3     two 180K-token prompts on Flash at the same time (the worst case)
+  python3 flash-ctx2-test.py --stage 4     one 150K prompt on Flash, then a 31K prompt on Gemma 60 s later (--delay N changes it),
+                                           so Gemma prefills while Flash is near the end of its own prefill
 
 Run one stage at a time, in order, and read the verdict before the next. Every prompt is different random text, and the
 seeds come from the clock, so neither two prompts in one run nor prompts from different runs share a prefix (the prefix cache
@@ -22,6 +24,7 @@ STAGES = {
     1: [("A", "flash", 100000), ("B", "flash", 100000)],
     2: [("A", "flash", 150000), ("G", "gemma", 24000)],
     3: [("A", "flash", 180000), ("B", "flash", 180000)],
+    4: [("A", "flash", 150000), ("G", "gemma", 31000, 60)],   # 4th field: seconds to wait before this request starts
 }
 MAX_OUT = 128
 SWAP_ABORT_MB = 1500.0
@@ -154,10 +157,21 @@ def one_request(name, base, model, nwords, seed, out, abort):
                         if res["ttft"] is None:
                             res["ttft"] = time.time() - t0
     except Exception as e:  # noqa: BLE001 - report any failure in the table
-        res["error"] = f"{type(e).__name__}: {e}"[:200]
+        detail = ""
+        if hasattr(e, "read"):
+            try:
+                detail = " | " + e.read(300).decode("utf-8", "replace").replace("\n", " ")
+            except Exception:  # noqa: BLE001
+                pass
+        res["error"] = f"{type(e).__name__}: {e}{detail}"[:300]
     if not res["error"] and res["chunks"] == 0:
         res["error"] = f"no content returned (stream ended empty, finish={res['finish']})"
     res["total"] = time.time() - t0
+
+
+def delayed(d, fn, *args):
+    time.sleep(d)
+    fn(*args)
 
 
 def main():
@@ -168,10 +182,12 @@ def main():
     ap.add_argument("--ctx", type=int, default=196608, help="Flash's configured --ctx-size")
     ap.add_argument("--interval", type=float, default=10.0)
     ap.add_argument("--scale", type=float, default=1.0, help="shrink the prompts (dry run of the script)")
+    ap.add_argument("--delay", type=float, default=None, help="override the start delay of the delayed request (stage 4)")
     ap.add_argument("--yes", action="store_true", help="skip the confirmation prompt")
     a = ap.parse_args()
 
-    plan = [(n, s, int(t * a.scale)) for n, s, t in STAGES[a.stage]]
+    plan = [(e[0], e[1], int(e[2] * a.scale)) for e in STAGES[a.stage]]
+    delays = {e[0]: ((a.delay if a.delay is not None else e[3] * a.scale) if len(e) > 3 else 0) for e in STAGES[a.stage]}
     for n, s, t in plan:
         cap = a.ctx if s == "flash" else 32768
         if t + MAX_OUT + 64 > cap:
@@ -186,6 +202,13 @@ def main():
 
     print(f"Stage {a.stage}: " + ", ".join(f"{n} = ~{t:,} tokens on {s}" for n, s, t in plan))
     print("This reads the prompts at about 2,400 tok/s per request when alone; two at once will be slower. Expect minutes.")
+    for n, d in delays.items():
+        if d:
+            print(f"{n} starts {d:g} s after the first request, to land inside the Flash prefill.")
+    s0 = sample(a.flash, a.gemma)
+    print(f"now: compressor {s0.get('compressor_gb')} GB, swap used {s0.get('swap_mb')} MB, pressure level {s0.get('level')}")
+    if (s0.get("compressor_gb") or 0) > 5:
+        print("WARN: the compressor still holds a lot from an earlier run, and a long prompt may then be refused. Ctrl-C now and wait a few minutes, or continue knowing that.")
     if not a.yes:
         input("Enter to start, Ctrl-C to cancel: ")
 
@@ -201,7 +224,7 @@ def main():
     seed0 = int(t_start) % 100000000 * 10   # fresh text every run: a fixed seed let later stages reuse an earlier stage's cached prefix
     for i, (n, s, t) in enumerate(plan):
         nwords = max(int(t / ratio[s]), 10)
-        th = threading.Thread(target=one_request, args=(n, bases[s], models[s], nwords, seed0 + i, out, abort))
+        th = threading.Thread(target=delayed, args=(delays[n], one_request, n, bases[s], models[s], nwords, seed0 + i, out, abort))
         threads.append(th)
     for th in threads:
         th.start()
@@ -212,7 +235,7 @@ def main():
     time.sleep(min(60, 6 * a.interval))
     sampler.stop.set(); sampler.join()
     sampler.samples.append(sample(a.flash, a.gemma))
-    log.write(json.dumps({"results": out, "plan": plan, "wall": wall, "seed0": seed0}) + "\n"); log.close()
+    log.write(json.dumps({"results": out, "plan": plan, "delays": delays, "wall": wall, "seed0": seed0}) + "\n"); log.close()
 
     print("\n=== requests ===")
     print(f"{'req':<4}{'server':<7}{'target':>9}{'actual':>9}{'TTFT s':>8}{'total s':>9}{'chunks':>8}{'tok/s':>7}  error")
