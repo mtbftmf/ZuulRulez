@@ -157,3 +157,27 @@ The services do not depend on the monitor.
 `system_profiler SPDisplaysDataType` lists a `Screen Sharing Virtual Display` (reported 3840 x 2160, `Online: Yes`) in that
 state; `m5-health.sh` `[display]` names each display, so a missing physical one is visible. A `Resolution:` line is the
 framebuffer size, not how large the interface looks.
+
+## 7. Long prompts, memory and the context test
+
+- `iogpu.wired_limit_mb` is 0 after every boot until it is set by hand (`sudo sysctl iogpu.wired_limit_mb=114688`, which
+  is 112 GiB of the 128 GiB). Confirm it with `sysctl iogpu.wired_limit_mb` after each boot, before a benchmark or a long
+  session.
+- Wired memory is high only while a model is serving; at idle it reads about 3 GB. `memory_mb` in `/metrics.json` stays
+  near the model size and is not wired memory. A reading taken straight after a request is not an idle baseline, and
+  `memory_pressure` free% swings within a minute, so never read it as headroom.
+- A long prompt can be refused instead of failing. Flash: `[scheduler] prefill refused ... PrefillDoesNotFit` in
+  `~/Library/Logs/mlx-serve.log` and a streaming error to the client. Gemma: `[admission] ... verdict=refuse` in
+  `mlx-serve-gemma.log` and an HTTP 400. Grep those logs before assuming a crash. Admission depends on the server's state
+  at that moment (what is running and how much memory is free), so one admitted prompt does not predict the next: a
+  Flash refusal was seen once while the compressor was still loaded from a heavy run (cause not proven).
+- Gemma's usable prompt while a long Flash prefill is running is well below its configured 32768 context: a 30,798-token
+  prompt was refused. Everyday Gemma traffic (titles, search queries) is a few thousand tokens.
+- `flash-ctx2-test.py` (stages 1 to 4): run it only when nothing else is using the models, and a few minutes after any
+  heavy run, because the compressor takes minutes to drain (the script prints its level before the start prompt). Its
+  `tok/s` column is SSE chunks per second after the first token, not a decode rate; use the `decode:` figure in the server
+  log. A server error event or an empty answer is a FAIL. Seeds come from the clock, so a prefix-cache hit cannot flatter
+  a run.
+- Attach a report instead of pasting terminal output: `m5-report.sh` writes one redacted, size-capped, read-only file
+  (sections `sys repo bin gate llm mem logs health drift`, and `--run` for one extra read-only command). A `.REVIEW.txt`
+  name means its leak check found something: read it before attaching. It never runs `refresh`.
