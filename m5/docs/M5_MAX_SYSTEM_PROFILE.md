@@ -37,7 +37,7 @@ LM Studio were removed the same day after the blind quality check.
 | `--prefix-cache-disk` | not set | SSD prefix tier off; hot cache ~5.2 GB (one 128K session, measured before the Nov 11 change) |
 
 mlx-serve picks its own prefill chunk from free memory (2048 tokens at load on Oct 24) and
-plans against a 110 GB wired budget internally; `iogpu.wired_limit_mb` is 114688 (112 GB), set by hand after each boot because it resets to 0 on reboot (see `docs/m5-max-post-os-update-verification.md`); read 114688 on Nov 11 after the 192K benchmark.
+plans against a 110 GB wired budget internally; `iogpu.wired_limit_mb` is 114688 (112 GiB), set at boot by the LaunchDaemon `com.user.m5-wired-limit` because it resets to 0 on reboot (see `docs/m5-max-post-os-update-verification.md`); read 114688 on Nov 11 after the 192K benchmark.
 
 ## Gemma (router, vision, task model)
 

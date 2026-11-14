@@ -160,9 +160,14 @@ framebuffer size, not how large the interface looks.
 
 ## 7. Long prompts, memory and the context test
 
-- `iogpu.wired_limit_mb` is 0 after every boot until it is set by hand (`sudo sysctl iogpu.wired_limit_mb=114688`, which
-  is 112 GiB of the 128 GiB). Confirm it with `sysctl iogpu.wired_limit_mb` after each boot, before a benchmark or a long
-  session.
+- `iogpu.wired_limit_mb` resets to 0 on every boot; the LaunchDaemon `com.user.m5-wired-limit` sets it to 114688
+  (112 GiB of 128 GiB) at `RunAtLoad`, so it is in place within the first minute and before any model loads. Proven
+  on the Nov 14 boot: the log's new line read `iogpu.wired_limit_mb: 0 -> 114688`, `runs = 1`, exit 0.
+- Confirm after each boot, before a benchmark or a long session: `sysctl iogpu.wired_limit_mb` reads 114688 and
+  `/var/log/m5-wired-limit.log` has a new line ending `-> 114688` with an mtime after that boot. If it reads 0, the
+  log's last line says why; set it by hand `sudo sysctl iogpu.wired_limit_mb=114688` before loading a model.
+- Template `m5/launchd/system/m5-wired-limit.plist.template`, deliberately outside `install.sh`'s non-recursive glob
+  because it needs root and the `system/` domain; render it with `WIRED_LIMIT_MB` from `~/.config/m5-secops.env`.
 - Wired memory is high only while a model is serving; at idle it reads about 3 GB. `memory_mb` in `/metrics.json` stays
   near the model size and is not wired memory. A reading taken straight after a request is not an idle baseline, and
   `memory_pressure` free% swings within a minute, so never read it as headroom.
