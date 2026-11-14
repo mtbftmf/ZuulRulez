@@ -166,8 +166,21 @@ framebuffer size, not how large the interface looks.
 - Confirm after each boot, before a benchmark or a long session: `sysctl iogpu.wired_limit_mb` reads 114688 and
   `/var/log/m5-wired-limit.log` has a new line ending `-> 114688` with an mtime after that boot. If it reads 0, the
   log's last line says why; set it by hand `sudo sysctl iogpu.wired_limit_mb=114688` before loading a model.
-- Template `m5/launchd/system/m5-wired-limit.plist.template`, deliberately outside `install.sh`'s non-recursive glob
-  because it needs root and the `system/` domain; render it with `WIRED_LIMIT_MB` from `~/.config/m5-secops.env`.
+- Template `m5/launchd/system/m5-wired-limit.plist.template`; needs root and the `system/` domain, so it sits
+  deliberately outside `install.sh`'s non-recursive glob. Render and install by hand:
+
+      set -a; source ~/.config/m5-secops.env; set +a
+      sed "s|__WIRED_LIMIT_MB__|$WIRED_LIMIT_MB|g" m5/launchd/system/m5-wired-limit.plist.template >/tmp/wired.rendered
+      plutil -lint /tmp/wired.rendered
+      sudo install -o root -g wheel -m 644 /tmp/wired.rendered /Library/LaunchDaemons/com.user.m5-wired-limit.plist
+
+  With the value already correct the new file is inert until the next boot; launchd keeps the definition it read at
+  boot. To reload now: `sudo launchctl bootout system/com.user.m5-wired-limit`, then
+  `sudo launchctl bootstrap system /Library/LaunchDaemons/com.user.m5-wired-limit.plist`.
+- A rendered copy does not hash like a hand-written install. Re-rendering on Nov 14 moved the installed file from
+  `f3e4354dd2a2…` to `4fe809ee844f…` with `plutil -convert json` output identical; the only diffs were comment text
+  and how `KeepAlive` was wrapped. Compare template to installed with `plutil -convert json`, never `shasum` against
+  a recorded older hash. Any reinstall makes `m5-drift.sh` print a `plist` gone/new pair; bless it with snapshot.
 - Wired memory is high only while a model is serving; at idle it reads about 3 GB. `memory_mb` in `/metrics.json` stays
   near the model size and is not wired memory. A reading taken straight after a request is not an idle baseline, and
   `memory_pressure` free% swings within a minute, so never read it as headroom.
