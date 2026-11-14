@@ -5,7 +5,9 @@
 #   ./install.sh --apply    link scripts into ~/bin (existing files are moved to *.bak-YYYYMMDD)
 #   ./install.sh --apply --launchd   also render and load the LaunchAgents in m5/launchd/
 #                                    (com.$USER.flash-up, com.$USER.mlx-serve, com.$USER.mlx-serve-gemma,
-#                                    com.$USER.m5-health-watch)
+#                                    com.$USER.m5-health-watch, com.$USER.m5-airplay-log)
+#   LaunchDaemons in m5/launchd/system/ (com.user.m5-wired-limit) are deliberately NOT handled here: they
+#   need root and the system/ domain, so render and install that one by hand.
 set -euo pipefail
 REPO="${0:A:h}"
 APPLY=0; LAUNCHD=0
@@ -17,6 +19,7 @@ stamp=$(date +%Y%m%d)
 
 mkdir -p "$HOME/bin"
 for f in "$REPO"/m5/bin/*; do
+  [[ -f "$f" ]] || continue   # skip __pycache__ and any other non-file in m5/bin/
   dest="$HOME/bin/${f:t}"
   if [[ -L "$dest" && "$(readlink "$dest")" == "$f" ]]; then print "ok      ${f:t}"; continue; fi
   [[ -e "$dest" || -L "$dest" ]] && run mv "$dest" "$dest.bak-$stamp"
@@ -25,6 +28,7 @@ for f in "$REPO"/m5/bin/*; do
 done
 
 if (( LAUNCHD )); then
+#   Non-recursive on purpose: m5/launchd/system/ holds root-only daemons that must not become GUI agents.
   for tpl in "$REPO"/m5/launchd/*.plist.template; do
     name="${${tpl:t}%.plist.template}"
     label="com.$USER.$name"
