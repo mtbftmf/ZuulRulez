@@ -1,7 +1,8 @@
 #!/bin/zsh
 # Emits JSON for canary-fingerprint.sh. Never sudo. Fail-closed on unknown.
 ST=/usr/local/etc/m5-security-state; SN=/usr/local/var/log/ccc-pki-audit.state
-CLONE='<CLONE-VOLUME>'
+[[ -r "$HOME/.config/m5-secops.env" ]] && source "$HOME/.config/m5-secops.env"
+CLONE="${M5_CLONE_VOL:-<CLONE-VOLUME>}"   # no env -> placeholder -> cannot mount -> unknown_clone_unmounted
 REL='opt/homebrew/var/lib/caddy/pki/authorities/local'
 PRIV=(root.key intermediate.key key.pem)
 typeset -A v
@@ -14,6 +15,7 @@ lp=${v[pki_log_path]:-none}
 llok=ok; case "$lp" in /tmp/*) llok=BAD_TMP ;; none) llok=missing ;; esac
 python3 - "$v" "$pki" "$llok" <<'PY'
 import json,sys
+pki, llok = sys.argv[2], sys.argv[3]
 d=dict(kv.split('=',1) for kv in sys.argv[1].split(',') if '=' in kv)
 print(json.dumps({
  "ccc_exclusion_set": d.get('ccc_exclusion_set','unknown'),
