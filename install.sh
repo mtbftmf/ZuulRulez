@@ -3,6 +3,8 @@
 # Default is a dry run: it only prints what it would do.
 #   ./install.sh            dry run
 #   ./install.sh --apply    link scripts into ~/bin (existing files are moved to *.bak-YYYYMMDD)
+#                           A real file in ~/bin that differs from the repo copy is never replaced (printed as
+#                           "differs"); only byte-identical real files are converted to links.
 #   ./install.sh --apply --launchd   also render and load the LaunchAgents in m5/launchd/
 #                                    (com.$USER.flash-up, com.$USER.mlx-serve, com.$USER.mlx-serve-gemma,
 #                                    com.$USER.m5-health-watch, com.$USER.m5-airplay-log)
@@ -22,6 +24,9 @@ for f in "$REPO"/m5/bin/*; do
   [[ -f "$f" ]] || continue   # skip __pycache__ and any other non-file in m5/bin/
   dest="$HOME/bin/${f:t}"
   if [[ -L "$dest" && "$(readlink "$dest")" == "$f" ]]; then print "ok      ${f:t}"; continue; fi
+  if [[ -f "$dest" && ! -L "$dest" ]] && ! cmp -s "$f" "$dest"; then
+    print "differs  ${f:t} (live copy kept; compare by hand, link it yourself if that is intended)"; continue
+  fi
   [[ -e "$dest" || -L "$dest" ]] && run mv "$dest" "$dest.bak-$stamp"
   run ln -s "$f" "$dest"
   run chmod +x "$f"
