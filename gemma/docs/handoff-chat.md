@@ -53,7 +53,7 @@ Measured on this Mac: about 68 tok/s generating, about 390 tok/s reading prompts
 ## 6. Hardening (Siri, Apple Intelligence, background services)
 - **RemoveMacAI** configuration profile: installed. Check it with `bash ~/ZuulRulez/gemma/rebuild/50-harden.sh status`. Turning Siri and Apple Intelligence off in Settings did not stick, which is why the profile is used.
 - **Service toggles**: `/usr/local/bin/macos-service-toggle.sh` disabled 63 background services (Siri, Apple Intelligence, iCloud, Messages, analytics and others). Its state is in `/usr/local/var/macos-service-toggle/`. A boot daemon, `com.macos-service-toggle.reassert`, re-applies the disables at every boot, because macOS 27 resets some of them early in boot. The log is `reassert.log` in that folder.
-  - Check: `sudo /usr/local/bin/macos-service-toggle.sh status`. System services should show `[still disabled]` and none should show `DRIFTED`. Per-user (`gui/501`) entries show `[unknown/not found]` when nobody is logged in on the desktop; that is normal.
+  - Check: `sudo /usr/local/bin/macos-service-toggle.sh status`. System services should show `[still disabled]` and none should show `DRIFTED`. Per-user (`gui/<uid>` entries show `[unknown/not found]` when nobody is logged in on the desktop; that is normal.
   - Undo everything: `sudo /usr/local/bin/macos-service-toggle.sh off`, then `sudo launchctl bootout system/com.macos-service-toggle.reassert`.
   - Never disabled: sshd, Remote Management, Time Machine, `com.apple.watchdogd` (the system watchdog) and `com.apple.rapportd`.
   - Details and troubleshooting: `~/ZuulRulez/gemma/hardening/README.md`.
