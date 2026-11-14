@@ -256,6 +256,17 @@ check_emitter(){
   [[ "${binc//"$CLONE"/$tok}" == "$refc" ]] \
     && ok "emitter matches m5/bin/canary-extras.sh (volume token masked)" \
     || { bad "$XTRA differs from m5/bin/canary-extras.sh beyond the volume token"; return 1; }
+
+  # zsh -n proves the heredoc parses and nothing more: the emitter ran a NameError inside its
+  # python block for an unknown stretch - parse-clean, run-broken, every check green. Require
+  # it to actually run, emit JSON, and carry the clone-PKI key. Clone unmounted is valid output.
+  local out
+  if ! out=$(zsh "$XTRA" 2>&1); then bad "$XTRA exited non-zero: ${out[1,120]}"; return 1; fi
+  print -r -- "$out" | python3 -m json.tool >/dev/null 2>&1 \
+    || { bad "$XTRA does not emit valid JSON: ${out[1,120]}"; return 1; }
+  [[ "$out" == *pki_in_clone_live* ]] \
+    && ok "emitter runs: valid JSON with pki_in_clone_live" \
+    || { bad "$XTRA JSON lacks pki_in_clone_live"; return 1; }
 }
 
 run_emitter(){
@@ -386,6 +397,10 @@ do_refresh(){
 do_verify(){
   local d dirty clean mix rc_neg rc_pos rc_mix prod
   [[ -x "$ROOT" ]] || { bad "$ROOT missing — run: $0 install"; return 1; }
+
+  # Previously reachable only from scan(), i.e. at arming time. verify and all never confirmed
+  # the emitter matched the repo copy or that it ran at all.
+  check_emitter
 
   d=$(mktemp -d) || return 2
   trap '[ -n "${d:-}" ] && rm -rf "$d"; true' EXIT
