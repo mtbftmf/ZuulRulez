@@ -6,6 +6,21 @@ newest first. Format: `YYYY-MM-DD — what changed, why, measured result`.
 ---
 
 ## 2026-11-15
+- mlx peak/decode ratio: gate `decode_tps`, the lifetime peak and the TPS graph to intervals where
+  `requests_running <= 1` at both polls. `d_out / d_dec` divides deltas of two histogram families and
+  `/metrics.json` is rendered family-by-family, so a poll landing between the `output_tokens` write
+  and the `decode_time_seconds` write charges one completion's decode time against two completions'
+  tokens and the ratio doubles. `fls` recorded 111.64 = 2 x 55.8 (measured two-up per-stream 55.5 and
+  56.1) during today's load test; the earlier 164.86 = 2 x 82.4 against a lifetime mean of 83.5. The
+  origin given in the entry above — high MTP acceptance on a short completion — was wrong, and
+  `MLX_PEAK_MIN_TOK` never addressed it. A per-stream rate is only defined for one stream; under
+  concurrency the row shows only the live box aggregate and its `n=`. Verified both directions: a
+  solo 800-token run published 94.55 with the row at 91.4/95 against the server's own 91.382, and a
+  two-request run left the stored peak byte-identical. Solo tearing can still skew a reading a few
+  percent — it cannot double it. Peak and last rate are now explicitly solo statistics and the TPS
+  graph has deliberate gaps under load. Compact display drops the peak and the decimals so `~113 n2`
+  fits MINI_WIDTH (130 px).
+
 - mlx display: emit the `~` prefix the docstring already promised for a live rate. The
   `generation_tokens_live` gauge flushes in ~2 s lumps, so its relative error is flush/span —
   measured ±110 % at a 2 s poll (130.6 against a true 109) and ±27 % at the 8 s window

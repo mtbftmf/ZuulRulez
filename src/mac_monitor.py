@@ -294,13 +294,22 @@ def _mlx_poll_one(key, base_url, prev, now):
         d_dec = dec_sum - prev["dec_sum"]
         if d_out > 0 and d_dec > 0:
             tps = d_out / d_dec
-            st["decode_tps"], st["decode_ts"] = tps, now
-            if d_out >= MLX_PEAK_MIN_TOK:
-                _max_tps[key] = max(_max_tps.get(key, 0), tps)
-                _save_peaks()
-            with _state_lock:
-                _tps_history.append((now, tps))
-                _prune_history(_tps_history, now)
+            # d_out/d_dec is a weighted mean over every completion that landed in this
+            # interval, and /metrics.json is rendered family-by-family rather than from a
+            # snapshot: a poll between the output_tokens write and the decode_time_seconds
+            # write sees two completions' tokens against one completion's decode time and
+            # the ratio doubles. Recorded fls 111.64 (= 2 x 55.8, the measured two-up
+            # per-stream rate) and the purged 164.86 (= 2 x 82.4, lifetime mean 83.5).
+            # A per-stream rate is only defined for one stream, so only a solo interval
+            # may publish it. Concurrency is visible as the live ~N n= readout instead.
+            if max(running, float(prev.get("running") or 0)) <= 1:
+                st["decode_tps"], st["decode_ts"] = tps, now
+                if d_out >= MLX_PEAK_MIN_TOK:
+                    _max_tps[key] = max(_max_tps.get(key, 0), tps)
+                    _save_peaks()
+                with _state_lock:
+                    _tps_history.append((now, tps))
+                    _prune_history(_tps_history, now)
         samples = list(prev.get("samples") or [])
         if running > 0:
             samples.append((now, gen_live, int(running)))
@@ -325,7 +334,7 @@ def _mlx_poll_one(key, base_url, prev, now):
     else:
         samples = []
     return {"out_sum": out_sum, "dec_sum": dec_sum, "gen_live": gen_live,
-            "ts": now, "samples": samples}
+            "ts": now, "running": running, "samples": samples}
 
 
 def _mlx_metrics_loop():
@@ -345,8 +354,9 @@ def _mlx_metrics_loop():
 def get_model_display(key, compact=False):
     """t/s text for a model row: live rate with "~" while generating, else the last
     finished request's decode rate (kept 1 h), else "—". Appends lifetime-max.
-    compact=True: "149.9 (142)" — for tkinter GUI where space is tight.
-    compact=False: "149.9 (max 142)" — for web dashboard."""
+    compact=True drops the peak and the decimals: the mini strip is MINI_WIDTH (130 px)
+    and "~112.5n2/112" did not read at a glance. compact=False keeps everything.
+    The peak is a SOLO-stream maximum; concurrency shows only in the live n= field."""
     st  = _state.get("mlx", {}).get(key, {})
     now = time.time()
     if not st.get("up"):
@@ -355,9 +365,12 @@ def get_model_display(key, compact=False):
     max_str = f"/{mx:.0f}" if mx else ""
     if st.get("running", 0) > 0 and st.get("live_tps") and now - st.get("live_ts", 0) < MLX_POLL_INTERVAL * 3:
         n = int(st.get("live_streams") or st.get("running") or 0)
-        agg = f"n{n}" if compact else f" n={n}"   # live rate is box aggregate over n streams
-        return f"~{st['live_tps']:.1f}{agg}{max_str}"   # gauge flushes; never better than ~25%
+        if compact:
+            return f"~{st['live_tps']:.0f} n{n}"    # strip: peak omitted, no decimals
+        return f"~{st['live_tps']:.1f} n={n}{max_str}"   # gauge flushes; never better than ~25%
     if st.get("decode_tps") and now - st.get("decode_ts", 0) < 3600:
+        if compact:
+            return f"{st['decode_tps']:.0f}"
         return f"{st['decode_tps']:.1f}{max_str}"
     return "—"
 
