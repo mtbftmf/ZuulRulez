@@ -77,6 +77,13 @@ MLX_SERVERS       = {      # row key -> mlx-serve base URL (both localhost-only)
     "fls": os.environ.get("MONITOR_FLS_URL", "http://127.0.0.1:11234"),   # Flash-Next
 }
 MLX_POLL_INTERVAL = 5       # seconds between mlx-serve metrics polls
+MLX_PEAK_MIN_TOK  = 64      # a completion must emit at least this many tokens to set the
+                            # lifetime peak. Warmup repeat_token runs hit ~165 tok/s on a
+                            # tiny output off the n-gram table and pinned fls at 164.9
+                            # against a lifetime mean of 83.5 (measured 2026-11-15).
+MLX_LIVE_WINDOW   = 8       # min span (s) for a live t/s sample; must exceed the ~2.5 s
+                            # flush period of gauges.generation_tokens_live or the reading
+                            # is quantization, not throughput (measured 2026-11-15)
 
 MEM_DELTA_SAMPLES = 6
 SWP_DELTA_SAMPLES = 12
@@ -243,9 +250,13 @@ def _parse_vm_stat(vm_output):
 # Per server, from GET /metrics.json every MLX_POLL_INTERVAL seconds:
 #   decode t/s = Δhistograms.output_tokens.sum / Δhistograms.decode_time_seconds.sum
 #                (requests finished since the last poll)
-#   live t/s   = Δgauges.generation_tokens_live / Δt while gauges.requests_running > 0
-#                (generation_tokens_live is cumulative and updated per token; do NOT add
-#                 counters.generation_tokens_total, that double-counts)
+#   live t/s   = Δgauges.generation_tokens_live over a rolling >=MLX_LIVE_WINDOW span,
+#                while gauges.requests_running > 0. The gauge is cumulative but does NOT
+#                advance per token: it flushes in lumps of ~220 tokens every 2.0-2.55 s
+#                (llm-rate-probe.py, 2026-11-15), so a short-interval division is meaningless.
+#                This value is BOX AGGREGATE across requests_running streams; decode t/s
+#                above is per stream. Do NOT add counters.generation_tokens_total, that
+#                double-counts, and do NOT feed _max_tps from this value.
 # Each finished-request reading is also added to the graph's TPS line.
 
 def _mlx_fetch_json(url):
@@ -266,6 +277,9 @@ def _mlx_poll_one(key, base_url, prev, now):
         st["up"] = False
         st["running"] = 0
         return {}                       # clean delta after a restart
+    now = time.time()   # re-stamp AFTER the fetch: dt must span the gap between gauge
+                        # reads, not between loop starts. A slow fetch here otherwise
+                        # inflates live t/s by (true_gap / dt), up to 3s/5s = 1.6x.
     st["up"] = True
     histograms = metrics.get("histograms", {})
     gauges     = metrics.get("gauges", {})
@@ -281,17 +295,37 @@ def _mlx_poll_one(key, base_url, prev, now):
         if d_out > 0 and d_dec > 0:
             tps = d_out / d_dec
             st["decode_tps"], st["decode_ts"] = tps, now
-            _max_tps[key] = max(_max_tps.get(key, 0), tps)
-            _save_peaks()
+            if d_out >= MLX_PEAK_MIN_TOK:
+                _max_tps[key] = max(_max_tps.get(key, 0), tps)
+                _save_peaks()
             with _state_lock:
                 _tps_history.append((now, tps))
                 _prune_history(_tps_history, now)
-        dt = now - prev["ts"]
-        if dt > 0 and running > 0:
-            live = (gen_live - prev["gen_live"]) / dt
-            if live > 0:
-                st["live_tps"], st["live_ts"] = live, now
-    return {"out_sum": out_sum, "dec_sum": dec_sum, "gen_live": gen_live, "ts": now}
+        samples = list(prev.get("samples") or [])
+        if running > 0:
+            samples.append((now, gen_live, int(running)))
+            base = 0
+            for i, (ts, _g, _r) in enumerate(samples):
+                if ts < now - MLX_LIVE_WINDOW:
+                    base = i
+            window = samples[base:]
+            base_ts, base_gen = window[0][0], window[0][1]
+            span = now - base_ts
+            if span >= MLX_LIVE_WINDOW and gen_live >= base_gen:
+                live = (gen_live - base_gen) / span
+                if live > 0:
+                    st["live_tps"], st["live_ts"] = live, now
+                    # mean concurrency over the sampled span. An instantaneous label read
+                    # "n=1" on a span that was mostly two-up (measured 2026-11-15).
+                    st["live_streams"] = max(1, int(round(
+                        sum(r for _t, _g, r in window) / len(window))))
+            samples = window
+        else:
+            samples = []
+    else:
+        samples = []
+    return {"out_sum": out_sum, "dec_sum": dec_sum, "gen_live": gen_live,
+            "ts": now, "samples": samples}
 
 
 def _mlx_metrics_loop():
@@ -320,7 +354,9 @@ def get_model_display(key, compact=False):
     mx = _max_tps.get(key)
     max_str = f"/{mx:.0f}" if mx else ""
     if st.get("running", 0) > 0 and st.get("live_tps") and now - st.get("live_ts", 0) < MLX_POLL_INTERVAL * 3:
-        return f"{st['live_tps']:.1f}{max_str}"
+        n = int(st.get("live_streams") or st.get("running") or 0)
+        agg = f"n{n}" if compact else f" n={n}"   # live rate is box aggregate over n streams
+        return f"{st['live_tps']:.1f}{agg}{max_str}"
     if st.get("decode_tps") and now - st.get("decode_ts", 0) < 3600:
         return f"{st['decode_tps']:.1f}{max_str}"
     return "—"

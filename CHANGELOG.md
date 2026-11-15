@@ -5,6 +5,21 @@ newest first. Format: `YYYY-MM-DD — what changed, why, measured result`.
 
 ---
 
+## 2026-11-15
+- mlx live t/s: sample over a rolling span >= `MLX_LIVE_WINDOW` (8 s), stamp the clock after the fetch
+  rather than before it, and label the row with the mean concurrency of that span.
+  `gauges.generation_tokens_live` flushes ~220-token lumps every 2.0-2.55 s (see the Nov 15
+  `llm-rate-probe.py` entry in MacLLM), so the old 5 s division was quantization; stamping before two
+  blocking fetches let a slow poll divide an ~8 s gauge gap by `dt = 5`, up to 1.6x; and the
+  instantaneous `requests_running` label read `n=1` on a span that was mostly two-up. Measured after
+  the window fix: `99.4 n=2` and `104.4` against a true aggregate of ~105-109, nothing above 130. The
+  mean-concurrency label shipped in the same change and is re-measured next load test.
+- mlx peak: a completion must emit >= `MLX_PEAK_MIN_TOK` (64) tokens to set the lifetime peak. `fls`
+  had pinned at 164.9 against a lifetime mean of 83.5 (9,678 tok / 1,159.7 s over 43 requests); a short
+  completion with very high MTP acceptance reaches a rate no real traffic does, and the warmup
+  `repeat_token` run is the suspected origin, unconfirmed. Stored `fls` peak purged, one 800-token
+  generation re-baselined it at 89.4. `decode_tps` and the TPS graph still record every completion.
+
 ## 2026-11-05 — web dashboard bound to loopback; Caddy :9443 is the only ingress
 
 The Flask server ran `flask_app.run(host="0.0.0.0", ...)` on :9090, so with the application
