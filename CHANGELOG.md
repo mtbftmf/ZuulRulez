@@ -2,6 +2,15 @@
 
 Newest first. Entries before Oct 16, 2026 were reconstructed from chat history.
 
+## 2026-11-15
+- bench: add `m5/bin/llm-rate-probe.py`, which samples `mlx-serve /metrics.json` and buckets peak live
+  tok/s by `requests_running` to attribute dashboard bursts to concurrency. Two concurrent `flash-next`
+  requests at `max_tokens 800`: 53.5 tok/s per stream (3,200 tok / 59.8 s), 109 box aggregate, matching
+  each server's own `timings` of 53.8 and 52.4. Finding: `gauges.generation_tokens_live` is cumulative
+  but does not advance per token, it flushes ~220-token lumps every 2.0-2.55 s, so any poll interval
+  below that divides a lump by too short a window; a 0.5 s poll reported 534 tok/s where the truth was
+  109. Concurrency costs speed: two streams at 53.5 each against 93 solo.
+
 ## 2026-11-12
 - harness: match the new orphan strings, add steps 1c (root-run program not owner-executable) and 1d
   (symlinked program judged by its target), and pin `DRIFT_BASELINE` to a scratch copy of the production
