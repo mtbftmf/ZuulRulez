@@ -290,8 +290,7 @@ totals are reliable. Do not publish per-family figures.
 - Hook "115 GB of model weights on disk": wrong noun and wrong units. 115 GB is model FILES from
   du -shL (GiB) ≈ 85 GB weights + 30 GB n-gram table. du reports GiB; safetensors sums are
   decimal. The shipped post uses the corrected wording.
-- Post-copy attribution reads "(Claude)"; every commit trailer reads "Co-Authored-By: Claude
-  Sonnet 4.6". Published attribution is Claude Sonnet 4.6 only — no other model, in any channel.
+- Post-copy attribution reads "(Claude)"; every commit trailer reads "  Sonnet 4.6". Published attribution is Claude Sonnet 4.6 only — no other model, in any channel.
 
 **Per-token read estimate:**
 - 2.36B routed experts + ~3.1B always-read (attn, shared, hyper, router) ≈ **~5.4B per forward pass**
@@ -372,9 +371,7 @@ Source: `~/open-webui-data/vector_db/chroma.sqlite3` join query
 - **Multi-edit patches: always deliver as a downloadable Python script, never as shell heredocs**
 - Attribution on every commit:
   ```
-  Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
-  Claude-Session: https://claude.ai/code/session_01FrXUfoq33ugWc7b3mZ2nmq
-  ```
+      ```
 
 ---
 
