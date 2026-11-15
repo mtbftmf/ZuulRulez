@@ -356,7 +356,7 @@ def get_model_display(key, compact=False):
     if st.get("running", 0) > 0 and st.get("live_tps") and now - st.get("live_ts", 0) < MLX_POLL_INTERVAL * 3:
         n = int(st.get("live_streams") or st.get("running") or 0)
         agg = f"n{n}" if compact else f" n={n}"   # live rate is box aggregate over n streams
-        return f"{st['live_tps']:.1f}{agg}{max_str}"
+        return f"~{st['live_tps']:.1f}{agg}{max_str}"   # gauge flushes; never better than ~25%
     if st.get("decode_tps") and now - st.get("decode_ts", 0) < 3600:
         return f"{st['decode_tps']:.1f}{max_str}"
     return "—"

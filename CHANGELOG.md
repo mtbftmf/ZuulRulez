@@ -6,6 +6,12 @@ newest first. Format: `YYYY-MM-DD — what changed, why, measured result`.
 ---
 
 ## 2026-11-15
+- mlx display: emit the `~` prefix the docstring already promised for a live rate. The
+  `generation_tokens_live` gauge flushes in ~2 s lumps, so its relative error is flush/span —
+  measured ±110 % at a 2 s poll (130.6 against a true 109) and ±27 % at the 8 s window
+  (99.4, 104.4). No span that fits inside a normal generation gives better than ~25 %; the
+  decode ratio at completion is exact and reads 55.5-56.1 tok/s per stream under two-up load.
+
 - mlx live t/s: sample over a rolling span >= `MLX_LIVE_WINDOW` (8 s), stamp the clock after the fetch
   rather than before it, and label the row with the mean concurrency of that span.
   `gauges.generation_tokens_live` flushes ~220-token lumps every 2.0-2.55 s (see the Nov 15
