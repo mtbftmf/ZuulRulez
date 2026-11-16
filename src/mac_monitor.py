@@ -66,7 +66,7 @@ BG_IMAGE        = _env_path("MONITOR_BG_IMAGE", "~/.local/bin/TxtSysMonBkgd.webp
 IMG_CROP_LEFT   = 0.38
 HISTORY_FILE    = _env_path("MONITOR_HISTORY_FILE", "~/.local/bin/mem_history.json")
 PEAKS_FILE      = _env_path("MONITOR_PEAKS_FILE",   "~/.local/share/macmonitor_peaks.json")
-PEAKS_SCHEMA    = 2  # bump when stored semantics change
+PEAKS_SCHEMA    = 3  # bump when stored semantics change
 STATE_FILE      = _env_path("MONITOR_STATE_FILE", "~/.local/bin/monitor_state.json")
 MAX_HISTORY     = 25920
 GRAPH_WINDOW    = 36000     # 10h desktop window (web JS uses its own WS=129600)
@@ -150,6 +150,7 @@ _pwr_history = []
 _thm_history = []
 _state_lock  = threading.Lock()
 _max_tps     = {}          # lifetime peak decode t/s per model key since daemon start
+_max_tps_ts  = {}          # when each per-model peak was set; key absent/null = predates schema 3
 _max_pwr_mw  = None
 _max_pwr_ts  = None        # lifetime peak CPU power mW since daemon start
 
@@ -305,7 +306,11 @@ def _mlx_poll_one(key, base_url, prev, now):
             if max(running, float(prev.get("running") or 0)) <= 1:
                 st["decode_tps"], st["decode_ts"] = tps, now
                 if d_out >= MLX_PEAK_MIN_TOK:
-                    _max_tps[key] = max(_max_tps.get(key, 0), tps)
+                    if tps > _max_tps.get(key, 0):
+                        _max_tps[key] = tps
+                        # Stamp only when the float wins — same rule proven for
+                        # max_pwr_ts: a save-stamp is not a peak timestamp.
+                        _max_tps_ts[key] = time.strftime("%Y-%m-%dT%H:%M:%S")
                     _save_peaks()
                 with _state_lock:
                     _tps_history.append((now, tps))
@@ -518,7 +523,7 @@ def _data_loop():
 
 def _load_peaks():
     """Read persisted lifetime-peak values from PEAKS_FILE on startup."""
-    global _max_tps, _max_pwr_mw, _max_pwr_ts
+    global _max_tps, _max_tps_ts, _max_pwr_mw, _max_pwr_ts
     try:
         if os.path.exists(PEAKS_FILE):
             with open(PEAKS_FILE, 'r') as f:
@@ -528,11 +533,20 @@ def _load_peaks():
             stored_pwr = data.get("max_pwr_mw")
             if stored_pwr is not None:
                 _max_pwr_mw = max(_max_pwr_mw or 0, float(stored_pwr))
-            if data.get("schema", 1) < PEAKS_SCHEMA:
+            stored_schema = data.get("schema", 1)
+            if stored_schema < 2:
                 _max_pwr_ts = None   # pre-fb231ec: stamp written on any peak, not just power
                 log.warning("_load_peaks: pre-schema-2 file; max_pwr_ts nulled (unreliable)")
             else:
                 _max_pwr_ts = data.get("max_pwr_ts")
+            if stored_schema < 3:
+                log.warning("_load_peaks: pre-schema-3 file; max_tps_ts absent "
+                            "(existing peaks predate stamping; null until each float is beaten)")
+            else:
+                # Load-time merge: startup _max_tps is empty, so stored floats always
+                # win the max() above and their stored stamps are the correct ones.
+                for k, v in (data.get("max_tps_ts") or {}).items():
+                    _max_tps_ts[k] = v
     except Exception as e:
         log.warning("_load_peaks error: %s", e)
 
@@ -542,6 +556,7 @@ def _save_peaks():
         os.makedirs(os.path.dirname(PEAKS_FILE), exist_ok=True)
         with open(PEAKS_FILE, 'w') as f:
             json.dump({"schema": PEAKS_SCHEMA, "max_tps": dict(_max_tps),
+                       "max_tps_ts": dict(_max_tps_ts),
                        "max_pwr_mw": _max_pwr_mw, "max_pwr_ts": _max_pwr_ts}, f)
     except Exception as e:
         log.warning("_save_peaks error: %s", e)

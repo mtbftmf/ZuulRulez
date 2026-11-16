@@ -6,6 +6,7 @@ newest first. Format: `YYYY-MM-DD — what changed, why, measured result`.
 ---
 
 ## 2026-11-15
+- peaks schema v3: per-model max_tps_ts stamped only on a new high; version-aware _load_peaks null-patch (schema-2 files keep max_pwr_ts); verified at boot PID 38567, stamp 2026-11-15T16:38:34 preserved.
 - mlx peak/decode ratio: gate `decode_tps`, the lifetime peak and the TPS graph to intervals where
   `requests_running <= 1` at both polls. `d_out / d_dec` divides deltas of two histogram families and
   `/metrics.json` is rendered family-by-family, so a poll landing between the `output_tokens` write
