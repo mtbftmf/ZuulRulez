@@ -243,3 +243,10 @@ interleave; gate now 0-for-3 at boundaries. Purge 3 executed bootout-first with 
 empty; non-resurrection proven by the daemon 08:33 self-heal write (fls 97.6388, ts map
 empty). Solo-gate plausibility guard remains OPEN (reject candidates above ~1.3x recent
 tps_history median, or require ratio re-read before promotion).
+## 2026-11-16 (guard)
+Peak plausibility guard deployed 09:21: reject d_cnt>=2 completion-boundary
+interleaves, plus candidates above 1.3x median of last 20 solo rates; stalled
+count counter degrades to median-only per the known unreliable-count builds.
+Validation: first post-quarantine candidate 124.3255 at 09:13:59 (pre-guard
+daemon) confirmed class 4 tear - exceeds measured dual-stream aggregate ~110 -
+purged bootout-first, sidecar sealed. Both checks reject it in replay.

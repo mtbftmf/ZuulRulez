@@ -151,6 +151,7 @@ _thm_history = []
 _state_lock  = threading.Lock()
 _max_tps     = {}          # lifetime peak decode t/s per model key since daemon start
 _max_tps_ts  = {}          # when each per-model peak was set; key absent/null = predates schema 3
+_tps_recent  = {}          # last 20 solo decode rates per key; feeds peak plausibility guard
 _max_pwr_mw  = None
 _max_pwr_ts  = None        # lifetime peak CPU power mW since daemon start
 
@@ -163,6 +164,14 @@ def _prune_history(history, now):
         history.pop(0)
     if len(history) > MAX_HISTORY:
         del history[:-MAX_HISTORY]
+
+
+def _recent_rate_median(key):
+    """Median of the last 20 solo decode rates; None until 5 samples exist.
+
+    Peak plausibility guard support: every recorded boundary tear ran 1.5-2x
+    above its neighborhood; the median of recent solo rates is robust to the
+    occasional tear that reaches the publication path."""
 
 
 def _load_history():
@@ -285,6 +294,7 @@ def _mlx_poll_one(key, base_url, prev, now):
     histograms = metrics.get("histograms", {})
     gauges     = metrics.get("gauges", {})
     out_sum  = float(histograms.get("output_tokens", {}).get("sum", 0))
+    out_cnt  = float(histograms.get("output_tokens", {}).get("count", 0))
     dec_sum  = float(histograms.get("decode_time_seconds", {}).get("sum", 0))
     gen_live = float(gauges.get("generation_tokens_live", 0))
     running  = float(gauges.get("requests_running", 0))
@@ -293,6 +303,7 @@ def _mlx_poll_one(key, base_url, prev, now):
         # Guard on Δdecode time > 0, not Δcount: some builds don't bump count reliably.
         d_out = out_sum - prev["out_sum"]
         d_dec = dec_sum - prev["dec_sum"]
+        d_cnt = out_cnt - prev["out_cnt"] if "out_cnt" in prev else 0
         if d_out > 0 and d_dec > 0:
             tps = d_out / d_dec
             # d_out/d_dec is a weighted mean over every completion that landed in this
@@ -306,7 +317,14 @@ def _mlx_poll_one(key, base_url, prev, now):
             if max(running, float(prev.get("running") or 0)) <= 1:
                 st["decode_tps"], st["decode_ts"] = tps, now
                 if d_out >= MLX_PEAK_MIN_TOK:
-                    if tps > _max_tps.get(key, 0):
+                    med = _recent_rate_median(key)
+                    torn = d_cnt >= 2
+                    wild = med is not None and tps > 1.3 * med
+                    if torn or wild:
+                        log.info("peak guard %s: rejected %.4f tok/s "
+                                 "(d_out=%d d_cnt=%s median=%s)",
+                                 key, tps, int(d_out), int(d_cnt), med)
+                    elif tps > _max_tps.get(key, 0):
                         _max_tps[key] = tps
                         # Stamp only when the float wins — same rule proven for
                         # max_pwr_ts: a save-stamp is not a peak timestamp.
@@ -314,6 +332,8 @@ def _mlx_poll_one(key, base_url, prev, now):
                     _save_peaks()
                 with _state_lock:
                     _tps_history.append((now, tps))
+                    _tps_recent.setdefault(key, []).append(tps)
+                    del _tps_recent[key][:-20]
                     _prune_history(_tps_history, now)
         samples = list(prev.get("samples") or [])
         if running > 0:
