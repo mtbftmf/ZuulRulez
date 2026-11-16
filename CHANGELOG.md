@@ -236,3 +236,10 @@ Peak PWR: 78.4W (new high, 5s average).
 - `sudoers.d/mac-monitor.example`: add placeholder sudoers rule for the pinned wrapper.
 - Peaks provenance: seed samplers and wrapper metadata; add sampler sentinel.
 
+## 2026-11-16
+S15730: schema 3 (8ecdcc8) live in daemon PID 2946. First max_tps_ts stamp
+(2026-11-16T08:21:01, value 151.1458) quarantined as tear class 3 - completion-boundary
+interleave; gate now 0-for-3 at boundaries. Purge 3 executed bootout-first with pgrep
+empty; non-resurrection proven by the daemon 08:33 self-heal write (fls 97.6388, ts map
+empty). Solo-gate plausibility guard remains OPEN (reject candidates above ~1.3x recent
+tps_history median, or require ratio re-read before promotion).
