@@ -12,12 +12,12 @@ Local LLM setup that runs two models side by side behind Open WebUI: Flash-Next 
 | --- | --- |
 | Hardware | Mac Studio M5 Max (18 CPU / 40 GPU), 128 GB, 1 TB, macOS 27.2 |
 | Workhorse | `flash-next` = MLX pack `ddalcu/Qwen3.8-Flash-Next-MLX-Serve-mixed-4-8bit` (4-bit affine, ~65 GB weights + 30 GB n-gram table mmapped), via `~/.mlx-serve/models/flash-next`. Vision and MTP included |
-| Flash server | [mlx-serve](https://github.com/ddalcu/mlx-serve) 26.10.3 (`brew pin`ned) on `127.0.0.1:11234`, LaunchAgent `com.$USER.mlx-serve`: `--ctx-size 196608 --mtp --no-pld --max-concurrent 2 --metrics` |
+| Flash server | [mlx-serve](https://github.com/ddalcu/mlx-serve) 26.11.2 (`brew pin`ned, MLX 0.32.5) on `127.0.0.1:11234`, LaunchAgent `com.$USER.mlx-serve`: `--ctx-size 196608 --mtp --no-pld --max-concurrent 2 --metrics` |
 | Router / vision / tasks | `gemma-4-26b-a4b-it-qat` = MLX pack `mlx-community/gemma-4-26B-A4B-it-qat-4bit` (~15 GB) via `~/.mlx-serve/models/gemma-4-26b-a4b-it-qat`, in a second mlx-serve on `127.0.0.1:11235`, LaunchAgent `com.$USER.mlx-serve-gemma`: `--ctx-size 32768 --max-concurrent 2 --metrics`. Thinking off unless a request turns it on (Gemma-* personas do). Moved from LM Studio Nov 3 |
-| Rollback | None since Nov 3: the AtomicChat `Qwen3.8-Flash-Next-AD-4.27bpw-Q4_K_M-M64` GGUF (88 GB) and LM Studio were removed after the blind quality check (`llm-compare.py`). Recovery from a broken mlx-serve or pack: the pin keeps mlx-serve at 26.10.3, and the packs re-download with `hf download` into the Hugging Face cache |
+| Rollback | None since Nov 3: the AtomicChat `Qwen3.8-Flash-Next-AD-4.27bpw-Q4_K_M-M64` GGUF (88 GB) and LM Studio were removed after the blind quality check (`llm-compare.py`). Recovery from a broken mlx-serve or pack: the pin keeps mlx-serve at 26.11.2, `~/bin/mlx-upgrade.sh 26.10.3` goes back to the previous release (a prebuilt download, about a minute), and the packs re-download with `hf download` into the Hugging Face cache |
 | Front end | Open WebUI 0.12, launchd daemon on `:8080`, data in `~/open-webui-data` |
 | HTTPS | Caddy (`brew services`) with its own local CA: Open WebUI on `:8443`, System Monitor on `:9443`; HTTP ports still open. Setup, per-device CA trust and the two-network name issue: `m5/docs/m5-max-https.md` |
-| GPU wired limit | macOS default (`iogpu.wired_limit_mb` = 0, ~96 GB) |
+| GPU wired limit | `iogpu.wired_limit_mb` = 114688 (112 GiB), set at boot by the LaunchDaemon `com.user.m5-wired-limit` (it resets to 0 on reboot; see `m5/docs/m5-operations.md`) |
 
 ## Measured (Flash Oct 24-25, Gemma Nov 3, 2026: both on mlx-serve)
 

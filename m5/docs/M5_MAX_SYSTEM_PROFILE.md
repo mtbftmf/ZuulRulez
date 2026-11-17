@@ -16,7 +16,7 @@ LM Studio were removed the same day after the blind quality check.
 | Model | Qwen3.8-Flash-Next, MLX pack `ddalcu/Qwen3.8-Flash-Next-MLX-Serve-mixed-4-8bit`, identifier `flash-next` |
 | Files | Hugging Face cache snapshot, linked as `~/.mlx-serve/models/flash-next` (the link name is the model id). 94.7 GB: ~100 weight shards (~65 GB), `ngram_table.bin` (30 GB), `model-vision.safetensors` (856 MB); MTP head inside the shards |
 | Quant | 4-bit affine (mixed 4/8-bit); arch `qwen4_exp` (48 layers: Gated DeltaNet 3:1 with Qwen Sparse Attention, 512-expert MoE, 10 routed + 1 shared) |
-| Engine | mlx-serve 26.10.3 (MLX 0.32.3), Homebrew tap `ddalcu/mlx-serve`, `brew pin`ned |
+| Engine | mlx-serve 26.11.2 (MLX 0.32.5; upgraded Nov 17 with `mlx-upgrade.sh`), Homebrew tap `ddalcu/mlx-serve`, `brew pin`ned |
 | Server | `127.0.0.1:11234` only (the mlx-serve default is `0.0.0.0`), OpenAI-compatible `/v1`, `/health`, `/metrics.json` |
 | Process | LaunchAgent `com.$USER.mlx-serve` (KeepAlive, ThrottleInterval 30), template `m5/launchd/mlx-serve.plist.template` |
 | Logs | `~/.mlx-serve/logs/mlx-serve-11234.log` (rotates at 32 MB), `~/Library/Logs/mlx-serve.log` |
@@ -113,7 +113,7 @@ memory: `memory_mb` ~75 GB in `/metrics.json`. After a reboot, before any reques
 compressed the idle weights (41 GB compressor); a long idle under memory pressure can do it again,
 costing one ~3-4 s request.
 
-## Metrics (`GET http://127.0.0.1:11234/metrics.json`, mlx-serve 26.10.3)
+## Metrics (`GET http://127.0.0.1:11234/metrics.json`, documented on mlx-serve 26.10.3; not re-checked on 26.11.2)
 
 Sections: `counters`, `gauges`, `decode_serial`, `histograms`, `sessions`.
 
@@ -135,7 +135,7 @@ Source text for the Open WebUI memories about this host (Settings → Personaliz
 `owui-memories.py` reads this section: each numbered item is one memory, keyed by the text before
 its first colon (parts in parentheses ignored); `--apply` replaces the memory with the same key or adds it. Keep the keys stable.
 
-1. M5 Max Flash-Next engine: Flash-Next (`flash-next`) runs on mlx-serve 26.10.3 (MLX pack
+1. M5 Max Flash-Next engine: Flash-Next (`flash-next`) runs on mlx-serve 26.11.2 (MLX pack
    ddalcu/Qwen3.8-Flash-Next-MLX-Serve-mixed-4-8bit) at 127.0.0.1:11234, LaunchAgent
    com.$USER.mlx-serve, 192K context, MTP on, 2 concurrent requests, metrics at /metrics.json.
    Gemma 4 26B-A4B QAT (gemma-4-26b-a4b-it-qat) runs in a second mlx-serve at 127.0.0.1:11235

@@ -3,6 +3,13 @@
 Newest first. Entries before Oct 16, 2026 were reconstructed from chat history.
 
 ## 2026-11-17
+- mlx-serve 26.10.3 -> 26.11.2 (MLX 0.32.3 -> 0.32.5) with `mlx-upgrade.sh`: about 50 s of downtime, new PIDs for
+  both agents, re-pinned. Solo llm-bench against Nov 15: Flash decode 91.5 tok/s (92.6), TTFT 242 ms (263),
+  prefill 2,587 tok/s (2,563); Gemma decode 141.8 (141.3), TTFT 48 ms (61), prefill 5,026 (5,134). llm-compare
+  (10 prompts, effort medium, max_tokens 8192): all 10 finished on stop, longest 4,175 tokens, so thinking is
+  still bounded and the router's 8192 cap stays. `--help` diff: no flag in use changed; five MLX_SERVE_* tuning
+  variables were removed (none set here); new plugins, --no-warmup-eager, --llama-kv-quant are unused.
+  README rows 15, 17, 20 (the wired-limit row was stale) and the system profile updated.
 - mlx-upgrade.sh: the first `--check` on the M5 reported the 26.10.3 rollback source as a 404 and a source
   build. Both were script errors: the formula's url is `.../v#{version}/mlx-serve-bin-macos-arm64.tar.gz`, and
   the script tested it with Ruby's `#{version}` unexpanded, then called any formula without a bottle block a
