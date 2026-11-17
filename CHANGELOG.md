@@ -3,6 +3,10 @@
 Newest first. Entries before Oct 16, 2026 were reconstructed from chat history.
 
 ## 2026-11-17
+- System profile metrics section re-checked on 26.11.2: all documented `/metrics.json` fields present, same
+  shape; the extra `usage` section and undocumented counters and gauges are listed. m5-secops.sh: install.sh's
+  "differs" is expected; the live copy carries the CCC task UUID and clone volume the repo copy holds as
+  placeholders, and is otherwise identical to 1621bd5. Keep the live copy; do not link it.
 - mlx-serve 26.10.3 -> 26.11.2 (MLX 0.32.3 -> 0.32.5) with `mlx-upgrade.sh`: about 50 s of downtime, new PIDs for
   both agents, re-pinned. Solo llm-bench against Nov 15: Flash decode 91.5 tok/s (92.6), TTFT 242 ms (263),
   prefill 2,587 tok/s (2,563); Gemma decode 141.8 (141.3), TTFT 48 ms (61), prefill 5,026 (5,134). llm-compare

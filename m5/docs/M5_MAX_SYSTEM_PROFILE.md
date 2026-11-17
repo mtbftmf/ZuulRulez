@@ -113,9 +113,14 @@ memory: `memory_mb` ~75 GB in `/metrics.json`. After a reboot, before any reques
 compressed the idle weights (41 GB compressor); a long idle under memory pressure can do it again,
 costing one ~3-4 s request.
 
-## Metrics (`GET http://127.0.0.1:11234/metrics.json`, documented on mlx-serve 26.10.3; not re-checked on 26.11.2)
+## Metrics (`GET http://127.0.0.1:11234/metrics.json`, documented on mlx-serve 26.10.3; re-checked on 26.11.2 Nov 17)
 
-Sections: `counters`, `gauges`, `decode_serial`, `histograms`, `sessions`.
+Sections: `counters`, `gauges`, `decode_serial`, `histograms`, `sessions`, `usage`. On Nov 17 (26.11.2) every field in
+the table below was present with the same shape. Also present and not used here: counters `requests_success_total`,
+`requests_failed_total`, `requests_rejected_total`, `requests_cancelled_total`, `prompt_tokens_total`,
+`prefill_tokens_total`, `prefix_cache_tokens_total`; gauges `prefill_tokens_live`, `prefill_tokens_expected`
+(prefill progress), `process_start_time_seconds` (restart detection), `batched_group_size`, `ane_layers`,
+`ane_int8_bytes`. Whether these were new in 26.11 is unknown (no 26.10.3 field list was saved).
 
 | Want | Fields |
 | --- | --- |
