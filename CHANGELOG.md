@@ -3,6 +3,14 @@
 Newest first. Entries before Oct 16, 2026 were reconstructed from chat history.
 
 ## 2026-11-17
+- Correction to the 26.11.2 entry below: "thinking is still bounded" overstated the test. The 26.11.2 release
+  notes say a `reasoning_effort` word no longer cuts thinking short (only a reasoning budget caps it); the
+  10-prompt run never neared the 8192 cap, so it neither confirms nor rules that out. System profile's
+  Reasoning effort section now says so. Why the upgrade was worth taking, per the same notes: the model stays
+  resident between requests instead of macOS squeezing it out (which could freeze a Mac running near its memory
+  size; this one runs 88-102 GB wired of 128), Flash-Next reuses its cached reply on the next agent turn, and
+  Flash-Next no longer crashes when an image request shares the GPU (the Auto -> Gemma vision route with Flash
+  busy). A rollback to 26.10.3 gives all three back. CONTEXT.md delivery rule now says git format-patch files.
 - System profile metrics section re-checked on 26.11.2: all documented `/metrics.json` fields present, same
   shape; the extra `usage` section and undocumented counters and gauges are listed. m5-secops.sh: install.sh's
   "differs" is expected; the live copy carries the CCC task UUID and clone volume the repo copy holds as

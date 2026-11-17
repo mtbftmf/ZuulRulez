@@ -371,7 +371,9 @@ Source: `~/open-webui-data/vector_db/chroma.sqlite3` join query
 
 - **Never commit:** tokens, passwords, API keys, LAN IPs, personal emails, `/Users/<name>` paths
 - Each change: one commit + one CHANGELOG line
-- **Multi-edit patches: always deliver as a downloadable Python script, never as shell heredocs**
+- **Changes arrive as `git format-patch` files** (owner runs `git am --3way`, then `git push`). Review findings are
+  fixed inside the patch and a replacement is re-issued; never in-terminal vi edits or shell heredocs. Replaces the
+  Python-patcher and vi-only rules as of 2026-11-17.
 - Attribution on every commit (trailer pair since Nov 15; no session URL, no chat links):
   ```
   Co-Authored: <model that wrote the commit>

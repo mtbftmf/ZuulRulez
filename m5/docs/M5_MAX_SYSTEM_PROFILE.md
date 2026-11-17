@@ -81,6 +81,10 @@ memory free for a 10.3 GB prompt); it passed once LM Studio's copy was unloaded.
 - Effort is a nudge, not a budget (Oct 18-19 probes on the GGUF; Oct 24 on MLX medium used more
   tokens than xhigh on a short question). `max_tokens` is the real time limit: Auto caps Flash
   medium 8192, Flash xhigh 24576, Gemma none.
+- mlx-serve 26.11.2 release notes: a `reasoning_effort` word (low, medium) no longer cuts thinking short; it
+  reaches the chat template as in other engines, and only a reasoning budget caps it. Requests at medium may
+  think longer than on 26.10.3. Not observed on Nov 17: llm-compare at medium, all 10 prompts finished `stop`,
+  longest 4,175 tokens, so none came near the 8192 cap either way. Watch for `finish=length` in later runs.
 
 ## Measured (Oct 24-25)
 
