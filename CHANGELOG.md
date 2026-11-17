@@ -3,6 +3,9 @@
 Newest first. Entries before Oct 16, 2026 were reconstructed from chat history.
 
 ## 2026-11-17
+- CONTEXT.md: repaired the two places 0a462e5 damaged. The model line had lost its name ("  Sonnet 4.6") and
+  claimed one model for all commits; it now lists each model with the dates taken from `git log`. The
+  attribution block was an empty code fence; it now shows the Co-Authored + Attribution pair.
 - `m5/bin/mlx-upgrade.sh` (new): upgrades or rolls back the pinned Homebrew mlx-serve the way `owui-upgrade.sh`
   handles Open WebUI: `--check` reports the installed (pinned) and stable versions, the rollback anchor (newest
   tap commit whose formula is the installed version) with a reachability check of its download, the
