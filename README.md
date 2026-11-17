@@ -134,10 +134,12 @@ Token caps (v1.3.2): Auto builds its own request to the model server, so persona
 | Start / reload both models | `~/bin/flash-up.sh` (both mlx-serve agents, warm-up, checks) |
 | Stop everything | `~/bin/flash-down.sh` (`STOP_MLX=0` keeps Flash, `STOP_GEMMA=0` keeps Gemma) |
 | Is Flash / Gemma up? | `curl -s http://127.0.0.1:11234/health` / `curl -s http://127.0.0.1:11235/health` |
-| Restart Flash / Gemma only | `launchctl kickstart -k gui/$UID/com.$USER.mlx-serve` / `...mlx-serve-gemma` |
+| Restart Flash only | `STOP_GEMMA=0 STOP_OWUI=0 ~/bin/flash-down.sh && OWUI_LABEL= ~/bin/flash-up.sh` (not `kickstart -k`: it does not reload a plist, `m5-operations.md` §2) |
+| Restart Gemma only | `STOP_MLX=0 STOP_OWUI=0 ~/bin/flash-down.sh && OWUI_LABEL= ~/bin/flash-up.sh` |
 | Logs | `~/.mlx-serve/logs/mlx-serve-11234.log` (Flash), `mlx-serve-11235.log` (Gemma); launchd output in `~/Library/Logs/mlx-serve.log`, `mlx-serve-gemma.log` |
 | Metrics (tok/s, memory, TTFT) | `curl -s http://127.0.0.1:11234/metrics.json` (Flash), `:11235/metrics.json` (Gemma) |
 | Upgrade Open WebUI (with backup and rollback) | `~/bin/owui-upgrade.sh` |
+| Upgrade mlx-serve (stop, upgrade, restart, re-pin; rollback by version) | `~/bin/mlx-upgrade.sh --check`, then `~/bin/mlx-upgrade.sh`; roll back by version, e.g. `~/bin/mlx-upgrade.sh 26.10.3` |
 | Benchmark (finds the server that serves the model) | `python3 ~/bin/llm-bench.py --model flash-next` |
 | Benchmark at depth, with memory | `python3 ~/bin/llm-bench.py --model flash-next --long-ctx 28000 --mem` |
 | Context sweep, labeled for A/B (v2) | `python3 ~/bin/llm-bench.py --model flash-next --sweep 16000,24000,30000 --label fa-on` |

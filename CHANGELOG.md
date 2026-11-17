@@ -2,6 +2,29 @@
 
 Newest first. Entries before Oct 16, 2026 were reconstructed from chat history.
 
+## 2026-11-17
+- `m5/bin/mlx-upgrade.sh` (new): upgrades or rolls back the pinned Homebrew mlx-serve the way `owui-upgrade.sh`
+  handles Open WebUI: `--check` reports the installed (pinned) and stable versions, the rollback anchor (newest
+  tap commit whose formula is the installed version) with a reachability check of its download, the
+  `MLX_SERVE_*` settings in the plists, `macllm.env`, `flash-up.sh` and the repo launchd templates, and both
+  agents' PIDs; the default run stops Flash and Gemma (bootout, wait until `launchctl print` fails), unpins,
+  installs with `HOMEBREW_NO_INSTALL_CLEANUP=1` (old keg kept), starts both with `OWUI_LABEL= flash-up.sh`,
+  proves the restart by changed PIDs and re-pins from an EXIT trap; a version argument installs that version
+  from its tap commit and restores the tap file. A failed install restarts the old binary; failed servers
+  print the rollback command plus an unsupported instant fallback (relink the kept keg's binary). After each
+  bootout it also waits for the old PID to exit, since a job can leave launchd before the process has released
+  its port. `--check` says whether a rollback installs from a bottle or a source build, and how to recover an
+  interrupted run; INT/TERM/HUP exit through the same cleanup. Saves `mlx-serve --help` (through the opt link,
+  not PATH) before and after to `~/Library/Logs/mlx-upgrade/`. README row and commented overrides in
+  `env.example` added; README's "restart Flash / Gemma only" row no longer recommends `kickstart -k`, which
+  does not reload a plist (`m5-operations.md` §2). Why: 26.11.2 is out, the pin is the only
+  rollback, and an ad hoc `brew upgrade` neither restarts nor proves anything. Result: tested in the workspace
+  against stub brew, launchctl and flash-up with a real git tap (26.10.1 to 26.11.2 plus a 26.10.31 decoy):
+  check, upgrade, already current, rollback to 26.10.3, install failure, servers not coming up, agent that
+  will not stop, process that outlives its job, unknown version; each left the formula pinned and the tap
+  clean. Reviewed in a second chat before use (stop proof, --help capture, tap override, signals). Not yet run on the M5;
+  the real `brew reinstall` from an older tap commit is untested until the first rollback.
+
 ## 2026-11-15
 - bench: add `m5/bin/llm-rate-probe.py`, which samples `mlx-serve /metrics.json` and buckets peak live
   tok/s by `requests_running` to attribute dashboard bursts to concurrency. Two concurrent `flash-next`
