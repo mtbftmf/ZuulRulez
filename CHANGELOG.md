@@ -3,6 +3,11 @@
 Newest first. Entries before Oct 16, 2026 were reconstructed from chat history.
 
 ## 2026-11-17
+- mlx-upgrade.sh: the first `--check` on the M5 reported the 26.10.3 rollback source as a 404 and a source
+  build. Both were script errors: the formula's url is `.../v#{version}/mlx-serve-bin-macos-arm64.tar.gz`, and
+  the script tested it with Ruby's `#{version}` unexpanded, then called any formula without a bottle block a
+  source build. It now fills in the formula's own `version` line and reports a prebuilt release tarball when
+  the formula has no build step. Upstream tags v26.10.3 and v26.11.2 both exist.
 - CONTEXT.md: repaired the two places 0a462e5 damaged. The model line had lost its name ("  Sonnet 4.6") and
   claimed one model for all commits; it now lists each model with the dates taken from `git log`. The
   attribution block was an empty code fence; it now shows the Co-Authored + Attribution pair.

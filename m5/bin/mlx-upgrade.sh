@@ -86,11 +86,14 @@ anchor_for() {
 
 # source_reachable COMMIT: is the download the formula at COMMIT points to still there?
 source_reachable() {
-  local rb url tag code
+  local rb url tag code ver
   rb="$(git -C "$TAP_DIR" show "$1:$TAP_FILE")"
   url="$(grep -m1 -E '^[[:space:]]*url "' <<<"$rb" | sed -E 's/^[[:space:]]*url "([^"]+)".*/\1/')"
   tag="$(grep -m1 -oE 'tag:[[:space:]]*"[^"]+"' <<<"$rb" | sed -E 's/.*"([^"]+)"/\1/' || true)"
   [[ -n "$url" ]] || { echo "no url line"; return 1; }
+  ver="$(grep -m1 -E '^[[:space:]]*version "' <<<"$rb" | sed -E 's/^[[:space:]]*version "([^"]+)".*/\1/' || true)"
+  url="${url//\#\{version\}/$ver}"      # Ruby interpolation: v#{version} -> v26.10.3
+  [[ "$url" == *'#{'* ]] && { echo "url has interpolation this script cannot expand: $url"; return 1; }
   if [[ -n "$tag" || "$url" == *.git ]]; then
     git ls-remote --exit-code "$url" "refs/tags/${tag:-}" >/dev/null 2>&1 \
       && { echo "git tag ${tag:-?} present"; return 0; } || { echo "git tag ${tag:-?} NOT found at $url"; return 1; }
@@ -99,10 +102,14 @@ source_reachable() {
   [[ "$code" == 200 ]] && { echo "download answers 200"; return 0; } || { echo "download answers ${code:-no response}: $url"; return 1; }
 }
 
-# install_kind COMMIT: bottle (download) or source build, for the formula at COMMIT.
+# install_kind COMMIT: how the formula at COMMIT installs. ddalcu's formula unpacks a prebuilt
+# release tarball (mlx-serve-bin-macos-arm64.tar.gz) and only relinks and re-signs it.
 install_kind() {
-  if git -C "$TAP_DIR" show "$1:$TAP_FILE" 2>/dev/null | grep -qE '^[[:space:]]*bottle do'; then echo "bottle (download)"
-  else echo "source build (compiles locally; slow, needs the Xcode tools)"; fi
+  local rb; rb="$(git -C "$TAP_DIR" show "$1:$TAP_FILE" 2>/dev/null)"
+  if grep -qE '^[[:space:]]*bottle do' <<<"$rb"; then echo "bottle (download)"
+  elif grep -qE 'system "(make|cmake|swift|zig|cargo|go|xcodebuild|ninja)"|std_cmake_args|std_cargo_args' <<<"$rb"; then
+    echo "source build (compiles locally; slow, needs the Xcode tools)"
+  else echo "prebuilt release tarball (download, no compile)"; fi
 }
 
 capture_help() {   # capture_help VERSION: save --help, or a marker when the binary is missing
