@@ -4,6 +4,11 @@ MacBook Pro System Monitor
 Run: /opt/homebrew/bin/python3.13 mbp_monitor.py
 Requirements: pip3 install psutil Pillow --break-system-packages
 Background image: ~/.local/bin/TxtSysMonBkgd.webp
+Machine-specific overrides: ~/.config/mbpmonitor.env (MONITOR_ENV_FILE to relocate).
+Peaks file: ~/.local/share/mbpmonitor_peaks.json -- schema 1, power-only, file-only.
+max_pwr_ts is stamped inside the new-high branch and null-patched on load; never
+re-derived by value matching. Purge-order law: edit the peaks file only while
+pgrep -x mbp_monitor is empty; seal evidence in .quarantine.json + a .bak-* per purge.
 """
 
 import tkinter as tk
@@ -11,6 +16,7 @@ import subprocess
 import threading
 import psutil
 import re
+import socket
 import time
 import os
 import json
@@ -23,8 +29,32 @@ logging.basicConfig(level=logging.WARNING, format="%(asctime)s %(levelname)s %(m
 log = logging.getLogger("mbp_monitor")
 
 # ── Config ───────────────────────────────────────────────────────────────────
+# Machine-specific values live in the env file named by MONITOR_ENV_FILE
+# (default ~/.config/mbpmonitor.env). Variables already in the environment win.
+def _load_env_file():
+    path = os.environ.get("MONITOR_ENV_FILE") or os.path.expanduser("~/.config/mbpmonitor.env")
+    try:
+        with open(path) as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                k, v = line.split("=", 1)
+                os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
+    except OSError:
+        pass
+
+
+def _env_path(name, default):
+    return os.path.expanduser(os.environ.get(name) or default)
+
+
+_load_env_file()
+
 UPDATE_MS        = 5000
-PM_INTERVAL      = 15
+PM_INTERVAL      = 15    # powermetrics cycle period (wall time ~= this + runtime)
+MEM_INTERVAL     = 5     # memory/swap poll (finally matches MAX_HISTORY's sizing)
+HISTORY_SAVE_SECS = 120
 BATTERY_INTERVAL = 60
 WIN_WIDTH        = 320
 STATS_HEIGHT     = 310
@@ -40,8 +70,10 @@ BORDER_COLOR     = "#ff6eb4"
 BG_COLOR         = "#08080f"
 BG_IMAGE         = os.path.expanduser("~/.local/bin/TxtSysMonBkgd.webp")
 IMG_CROP_LEFT    = 0.37
-HISTORY_FILE     = os.path.expanduser("~/.local/bin/mem_history.json")
-STATE_FILE       = os.path.expanduser("~/.local/bin/monitor_state.json")
+HISTORY_FILE     = _env_path("MONITOR_HISTORY_FILE", "~/.local/bin/mem_history.json")
+STATE_FILE       = _env_path("MONITOR_STATE_FILE",   "~/.local/bin/monitor_state.json")
+PEAKS_FILE       = _env_path("MONITOR_PEAKS_FILE",   "~/.local/share/mbpmonitor_peaks.json")
+PEAKS_SCHEMA     = 1
 MAX_HISTORY      = 17280
 GRAPH_WINDOW     = 86400    # 24h
 EFF_GRAPH_SCALE  = 500.0    # 500 %/W = 100% of graph (Apple Silicon GPU/W peaks ~300-400)
@@ -54,6 +86,10 @@ SWP_USED_RE  = re.compile(r"used\s*=\s*([\d.]+)M")
 SWP_TOTAL_RE = re.compile(r"total\s*=\s*([\d.]+)M")
 GPU_RE       = re.compile(r"GPU HW active residency:\s*([\d.]+)%")
 CPU_PWR_RE   = re.compile(r"^CPU Power:\s*([\d.]+)\s*mW", re.MULTILINE)
+# Primary power line: SoC package power in mW (CPU+GPU+ANE), same semantics and
+# regex family as the Studio collector. Verified present on the MBP's macOS with
+# this exact sampler set (probe 2026-11-18: "Combined Power (CPU + GPU + ANE): 1271 mW").
+PWR_COMBINED_RE = re.compile(r"^Combined Power \(CPU \+ GPU \+ ANE\):\s*([\d.]+)\s*mW", re.MULTILINE)
 CPU_FREQ_RE  = re.compile(r"(?:P0-Cluster HW active frequency|CPU 0 frequency):\s*([\d.]+)\s*MHz")
 THERMAL_RE   = re.compile(r"Current pressure level:\s*(\w+)")
 BAT_PCT_RE   = re.compile(r"(\d+)%")
@@ -76,6 +112,7 @@ STAT_COLORS = {
     "BAT": "#00e676",   # 11.96:1
     "THM": "#00e676",   # 11.96:1
     "EFF": "#88aaff",   # 8.78:1
+    "PKV": "#ffd700",   # 14.23:1 -- peak power row, same gold as PWR (508 table)
 }
 
 PRESSURE_COLORS = {"Green": "#00e676", "Yellow": "#ffd600", "Red": "#ff1744"}
@@ -105,8 +142,12 @@ _mem_history     = []
 _gpu_history     = []
 _swp_history     = []
 _eff_history     = []
+_pwr_history     = []          # (ts, combined package mW) -- same units as the Studio's
+_pwr_mode_logged = set()       # parse modes (combined|cpu) already logged once
+_peaks           = {"schema": PEAKS_SCHEMA, "max_pwr_mw": None, "max_pwr_ts": None}
 _state_lock      = threading.Lock()
 _last_battery_ts = 0
+_stop_evt        = threading.Event()   # reserved for cooperative shutdown
 
 
 # ── History helpers ───────────────────────────────────────────────────────────

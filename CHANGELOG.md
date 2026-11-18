@@ -4,6 +4,8 @@ All notable changes to the Mac Studio System Monitor are listed here,
 newest first. Format: `YYYY-MM-DD — what changed, why, measured result`.
 
 ---
+## 2026-11-18 
+- mbp_monitor: env-file loader, env-overridable paths (incl. new MONITOR_PEAKS_FILE), schema 1 constants, Combined-Power regex + state scaffolding — declarations only. env.example gains MBP block; Studio placeholder paths moved to ~/ style. Measured: 28/28 anchors unique; staged blob py_compile standalone; additions scan 0; tracked env.example now 0 /Users/ hits.
 
 ## 2026-11-15
 - peaks schema v3: per-model max_tps_ts stamped only on a new high; version-aware _load_peaks null-patch (schema-2 files keep max_pwr_ts); verified at boot PID 38567, stamp 2026-11-15T16:38:34 preserved.
