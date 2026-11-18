@@ -857,7 +857,7 @@ canvas { background:#0a0a0f;border:1px solid #ff6eb4;width:100%;height:160px;dis
     <span><span class="dot" style="background:#aaaaaa"></span>MEM Δ</span>
     <span><span class="dot" style="background:#5064b4"></span>T/W ÷10</span>
     <span><span class="dot" style="background:#e040fb"></span>TPS ÷150</span>
-    <span><span class="dot" style="background:#ffd700"></span>⚡ ÷100W</span>
+    <span><span class="dot" style="background:#e0e8e8"></span>⚡ ÷100W</span>
   </div>
 </div>
 <div class="updated" id="updated">Updated: …</div>
@@ -912,7 +912,7 @@ function drawGraph(mem,gpu,swp,eff,tps,pwr){
   ctx.globalAlpha=0.5; pl(gpu,'#b4b4bc'); ctx.globalAlpha=1.0;
   pl(eff,'#5064b4',ES);
   pl(tps,'#e040fb',TS,60);
-  pl(pwr,'#ffd700',PS);
+  pl(pwr,'#e0e8e8',PS);  // off-white: gold saturated plot; stats row stays gold
   pl(swp,'#ff6400');
   pl(mem,v=>v>95?'#ff4444':v>80?'#ffd600':'#00e676');
 }
