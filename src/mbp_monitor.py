@@ -172,6 +172,7 @@ def _load_history():
                 _gpu_history.extend((ts, v) for ts, v in data.get("gpu_history", []) if ts > cutoff)
                 _swp_history.extend((ts, v) for ts, v in data.get("swp_history", []) if ts > cutoff)
                 _eff_history.extend((ts, v) for ts, v in data.get("eff_history", []) if ts > cutoff)
+                _pwr_history.extend((ts, v) for ts, v in data.get("pwr_history", []) if ts > cutoff)
                 _mem_min = data.get("min")
                 _mem_max = data.get("max")
             else:
@@ -181,13 +182,18 @@ def _load_history():
 
 
 def _save_history():
+    # Snapshot under _state_lock (GUI thread may call via SIGTERM while collectors
+    # append); file write outside the lock. pwr_history is persisted so peak
+    # context and the baseline period survive restarts (history-file restore).
     try:
+        with _state_lock:
+            snapshot = {
+                "history": list(_mem_history), "min": _mem_min, "max": _mem_max,
+                "gpu_history": list(_gpu_history), "swp_history": list(_swp_history),
+                "eff_history": list(_eff_history), "pwr_history": list(_pwr_history),
+            }
         with open(HISTORY_FILE, 'w') as f:
-            json.dump({
-                "history": _mem_history, "min": _mem_min, "max": _mem_max,
-                "gpu_history": _gpu_history, "swp_history": _swp_history,
-                "eff_history": _eff_history,
-            }, f)
+            json.dump(snapshot, f)
     except Exception as e:
         log.warning("_save_history error: %s", e)
 
@@ -238,27 +244,53 @@ def _parse_vm_stat(vm_output):
 
 # ── Background data collection thread ────────────────────────────────────────
 
-def _data_loop():
-    global _mem_min, _mem_max, _last_battery_ts
+def _power_loop():
+    """powermetrics on its own thread: PWR (combined, CPU fallback), GPU, GHz,
+    THM, EFF, and the new _pwr_history series with the peaks new-high branch.
+    sudo -n: with no NOPASSWD grant sudo fails instantly and the empty-output
+    branch logs visibly, instead of hanging on a TTY prompt."""
     pm_cmd = [
-        "sudo", "/usr/bin/powermetrics",
+        "sudo", "-n", "/usr/bin/powermetrics",
         "--samplers", "cpu_power,gpu_power,thermal",
         "-n", "1", "-i", str(PM_INTERVAL * 1000),
         "--hide-cpu-duty-cycle",
     ]
-    while True:
+    while not _stop_evt.wait(PM_INTERVAL):
         try:
             result = subprocess.run(pm_cmd, capture_output=True, text=True, timeout=PM_INTERVAL + 5)
             out = result.stdout
             if not out:
-                log.warning("powermetrics returned empty output")
-                time.sleep(PM_INTERVAL)
+                log.warning("powermetrics empty output (sudo -n exit=%s stderr=%r)",
+                            result.returncode, (result.stderr or "")[:200])
                 continue
 
             m = GPU_RE.search(out)
-            if m: _state["gpu_residency"] = float(m.group(1))
-            m = CPU_PWR_RE.search(out)
-            if m: _state["cpu_power_mw"] = float(m.group(1))
+            if m:
+                _state["gpu_residency"] = float(m.group(1))
+            else:
+                # DIVERGENCE (documented): the Studio reviewed this stale-repeat
+                # defect, classified it cosmetic, recommended no fix at its cadence.
+                # The MBP's slower cycle makes stale appends proportionally larger
+                # on the 24h graph, so on a miss we set None: the append guard now
+                # actually means something and the row honestly reads U+2026.
+                _state["gpu_residency"] = None
+
+            mw = None
+            mode = "combined"
+            m = PWR_COMBINED_RE.search(out)
+            if not m:
+                m = CPU_PWR_RE.search(out)
+                mode = "cpu"
+            if m:
+                mw = float(m.group(1))
+                _state["cpu_power_mw"] = mw
+                if mode not in _pwr_mode_logged:
+                    _pwr_mode_logged.add(mode)
+                    if mode == "cpu":
+                        log.warning("power parse: Combined ABSENT -- CPU-only fallback in use; "
+                                    "PWR history/peaks are CPU-only power on this build")
+                    else:
+                        log.warning("power parse: Combined Power (CPU + GPU + ANE) matched")
             m = CPU_FREQ_RE.search(out)
             if m: _state["cpu_ghz"] = float(m.group(1)) / 1000
             m = THERMAL_RE.search(out)
@@ -271,8 +303,19 @@ def _data_loop():
                     _gpu_history.append((now, pct))
                     _prune_history(_gpu_history, now)
 
+            if mw is not None:
+                now = time.time()
+                with _state_lock:
+                    _pwr_history.append((now, mw))
+                    _prune_history(_pwr_history, now)
+                if mode == "combined":
+                    # Peaks track combined package power only; a CPU-fallback world
+                    # must not silently mix measurement classes in one maximum.
+                    # The plausibility guard is intentionally NOT here: it ships
+                    # only after the MBP baseline period derives its ceiling.
+                    _record_power_peak(mw)
+
             gpu = _state.get("gpu_residency")
-            mw  = _state.get("cpu_power_mw")
             if gpu is not None and mw is not None and mw >= 10:
                 now = time.time()
                 with _state_lock:
@@ -281,9 +324,15 @@ def _data_loop():
 
         except Exception as e:
             log.warning("powermetrics error: %s", e)
-            time.sleep(PM_INTERVAL)
-            continue
 
+
+def _mem_loop():
+    """Memory + swap at MEM_INTERVAL; battery on its BATTERY_INTERVAL gate;
+    history save on the data-thread clock -- a stalled Tk loop must not stop
+    persistence (was: GUI-thread counter every 24 ticks)."""
+    global _mem_min, _mem_max, _last_battery_ts
+    last_save = time.time()
+    while not _stop_evt.wait(MEM_INTERVAL):
         try:
             vals = _parse_vm_stat(subprocess.check_output(["vm_stat"], text=True))
             free = vals.get("Pages free", 0); inact = vals.get("Pages inactive", 0)
@@ -333,7 +382,56 @@ def _data_loop():
                     _state["battery_text"] = "…"
             _last_battery_ts = now
 
-        time.sleep(PM_INTERVAL)
+        now = time.time()
+        if now - last_save >= HISTORY_SAVE_SECS:
+            _save_history()
+            last_save = now
+
+
+# ── Peaks (schema 1: power-only; file-only; dated from birth) ─────────────────
+# Studio lessons applied from day one:
+#   * max_pwr_ts is written ONLY inside the new-high branch -- never beside a
+#     bare max(), never re-derived later by float-matching the history.
+#   * On load, a null ts next to a non-null max stays null. A null ts is honest;
+#     a guessed ts is a lie.
+#   * Peaks never enter served output; the file is the single source.
+#   * File mtime is a liveness signal -- _save_peaks fires only on a new high.
+
+def _iso_ts():
+    return time.strftime("%Y-%m-%dT%H:%M:%S")
+
+
+def _load_peaks():
+    try:
+        if os.path.exists(PEAKS_FILE):
+            with open(PEAKS_FILE) as f:
+                data = json.load(f)
+            if isinstance(data, dict) and data.get("schema") == PEAKS_SCHEMA:
+                _peaks.update(data)
+                if _peaks.get("max_pwr_mw") is not None and _peaks.get("max_pwr_ts") is None:
+                    log.warning("peaks: non-null max with null ts kept null (no resurrection by value)")
+    except Exception as e:
+        log.warning("_load_peaks error: %s", e)
+
+
+def _save_peaks():
+    tmp = PEAKS_FILE + ".tmp"
+    try:
+        os.makedirs(os.path.dirname(PEAKS_FILE), exist_ok=True)
+        with open(tmp, "w") as f:
+            json.dump(_peaks, f)
+        os.replace(tmp, PEAKS_FILE)          # atomic swap; mtime = last new high
+    except Exception as e:
+        log.warning("_save_peaks error: %s", e)
+
+
+def _record_power_peak(mw):
+    """New-high branch: stamp value and timestamp together, save immediately."""
+    if _peaks.get("max_pwr_mw") is None or mw > _peaks["max_pwr_mw"]:
+        _peaks["max_pwr_mw"] = mw
+        _peaks["max_pwr_ts"] = _iso_ts()
+        _save_peaks()
+        log.warning("power peak: new high %.0f mW at %s", mw, _peaks["max_pwr_ts"])
 
 
 # ── Data fetchers ─────────────────────────────────────────────────────────────
@@ -390,6 +488,15 @@ def get_gpu_residency():
 
 def get_cpu_power():
     m = _state.get("cpu_power_mw"); return f"{m:.0f} mW" if m is not None else "…"
+
+def get_peak_power(with_ts=True):
+    pk = _peaks.get("max_pwr_mw")
+    if pk is None: return "…"
+    s = f"{pk/1000:.1f} W"
+    ts = _peaks.get("max_pwr_ts")
+    if ts and with_ts:
+        s += " @" + ts[5:16].replace("T", " ")   # MM-DD HH:MM
+    return s
 
 def get_swap_used():
     with _state_lock: u = _state.get("swp_used_gb"); t = _state.get("swp_total_gb")
@@ -485,7 +592,7 @@ class MonitorApp:
         _mini_x = _ws.get("mini_x"); _mini_y = _ws.get("mini_y")
         _was_minimized = _ws.get("minimized", False)
 
-        _mini_h = MINI_ROW_H * 5   # MEM + GPU + SWP + BAT + restore arrow
+        _mini_h = MINI_ROW_H * 6   # MEM + GPU + SWP + BAT + PKV + restore arrow
         if _was_minimized and _mini_x is not None and _mini_y is not None:
             root.geometry(f"{MINI_WIDTH}x{_mini_h}+{_mini_x}+{_mini_y}")
         elif _x is not None and _y is not None:
@@ -535,7 +642,7 @@ class MonitorApp:
         stats = [
             ("USE","USE"),("RAM","RAM"),("MEM","MEM"),("SSD","SSD"),
             ("GHz","GHz"),("GPU","GPU"),("PWR","PWR"),("SWP","SWP"),
-            ("BAT","BAT"),("THM","THM"),("EFF","EFF"),
+            ("BAT","BAT"),("THM","THM"),("EFF","EFF"),("PKV","PKV"),
         ]
         self.value_items = {}
         row_start_y = 38
@@ -565,7 +672,7 @@ class MonitorApp:
         self._graph_img_id = self.canvas.create_image(gx+1, gy+1, anchor="nw")
 
         # Mini strip — vertical stack
-        _mini_h = MINI_ROW_H * 5
+        _mini_h = MINI_ROW_H * 6
         self._mini_frame = tk.Frame(root, bg=BG_COLOR, width=MINI_WIDTH)
         self._mini_mem = tk.Label(self._mini_frame, text="MEM:…",
             font=(FONT_FAMILY, 10, "bold"), fg=PRESSURE_COLORS["Green"], bg=BG_COLOR, anchor="w")
@@ -575,23 +682,23 @@ class MonitorApp:
             font=(FONT_FAMILY, 10, "bold"), fg=STAT_COLORS["SWP"], bg=BG_COLOR, anchor="w")
         self._mini_bat = tk.Label(self._mini_frame, text="BAT:…",
             font=(FONT_FAMILY, 10, "bold"), fg=STAT_COLORS["BAT"], bg=BG_COLOR, anchor="w")
+        self._mini_pkv = tk.Label(self._mini_frame, text="PKV:…",
+            font=(FONT_FAMILY, 10, "bold"), fg=STAT_COLORS["PKV"], bg=BG_COLOR, anchor="w")
         self._mini_rst = tk.Label(self._mini_frame, text="▼ expand",
             font=(FONT_FAMILY, 9, "bold"), fg=BORDER_COLOR, bg=BG_COLOR, cursor="hand2", anchor="w")
         self._mini_rst.bind("<Button-1>", lambda e: self._toggle_minimize())
         self._mini_frame.bind("<Button-1>", lambda e: self._toggle_minimize())
         self._mini_frame.configure(cursor="hand2")
         for w in [self._mini_mem, self._mini_gpu, self._mini_swp,
-                  self._mini_bat, self._mini_rst]:
+                  self._mini_bat, self._mini_pkv, self._mini_rst]:
             w.pack(side="top", fill="x", padx=4)
             w.bind("<Button-1>", lambda e: self._toggle_minimize())
-
-        self._save_counter = 0
 
         if _was_minimized:
             self._minimized = True
             self._min_btn.place_forget()
             self.canvas.place_forget()
-            _mini_h = MINI_ROW_H * 5
+            _mini_h = MINI_ROW_H * 6
             self._mini_frame.place(x=0, y=0, width=MINI_WIDTH, height=_mini_h)
 
         root.after(3000, lambda: setattr(self, "_startup", False))
@@ -622,7 +729,7 @@ class MonitorApp:
         else:
             self._min_btn.place_forget()
             self.canvas.place_forget()
-            _mini_h = MINI_ROW_H * 5
+            _mini_h = MINI_ROW_H * 6
             self._mini_frame.place(x=0, y=0, width=MINI_WIDTH, height=_mini_h)
             self.root.geometry(f"{MINI_WIDTH}x{_mini_h}")
             self._minimized = True
@@ -661,17 +768,16 @@ class MonitorApp:
             self.canvas.itemconfig(self.value_items["MEM"], text=pressure, fill=mem_color)
             self.canvas.itemconfig(self.value_items["THM"], text=thm_txt, fill=thm_color)
             self.canvas.itemconfig(self.value_items["EFF"], text=get_efficiency())
+            self.canvas.itemconfig(self.value_items["PKV"], text=get_peak_power())
             self.draw_graph()
         else:
             self._mini_mem.config(text=f"MEM:{mem_pct}", fg=gui_mem_color)
             self._mini_gpu.config(text=f"GPU:{gpu_txt}")
             self._mini_swp.config(text=f"SWP:{swp_txt}")
             self._mini_bat.config(text=f"BAT:{bat_txt}")
+            self._mini_pkv.config(text=f"PKV:{get_peak_power(with_ts=False)}")
 
-        self._save_counter += 1
-        if self._save_counter >= 24:
-            _save_history()
-            self._save_counter = 0
+        # Persistence moved to the data-thread clock (_mem_loop). SIGTERM saves too.
 
         self.root.after(UPDATE_MS, self.update_stats)
 
@@ -681,7 +787,9 @@ class MonitorApp:
 if __name__ == "__main__":
     signal.signal(signal.SIGTERM, _sigterm_handler)
     _load_history()
-    threading.Thread(target=_data_loop, daemon=True).start()
+    log.warning("monitor start: pid=%d host=%s", os.getpid(), socket.gethostname())
+    threading.Thread(target=_power_loop, name="power", daemon=True).start()
+    threading.Thread(target=_mem_loop,   name="mem",    daemon=True).start()
     psutil.cpu_percent(interval=0.1)
     root = tk.Tk()
     MonitorApp(root)
