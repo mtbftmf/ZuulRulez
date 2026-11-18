@@ -787,6 +787,7 @@ class MonitorApp:
 if __name__ == "__main__":
     signal.signal(signal.SIGTERM, _sigterm_handler)
     _load_history()
+    _load_peaks()
     log.warning("monitor start: pid=%d host=%s", os.getpid(), socket.gethostname())
     threading.Thread(target=_power_loop, name="power", daemon=True).start()
     threading.Thread(target=_mem_loop,   name="mem",    daemon=True).start()

@@ -5,6 +5,7 @@ newest first. Format: `YYYY-MM-DD — what changed, why, measured result`.
 
 ---
 ## 2026-11-18 
+- mbp_monitor: PKV display row (gold, PWR color) + render path + mini-strip label + _load_peaks() startup call — completes the peaks engine; recorded peaks now survive restarts. Sixth-row layout already sized in cadence commit; closes its NOTE. Measured: staged blob compiles standalone; startup call verified at line 790 of index; additions scan 0. Runtime verification (peaks file creation, first stamp) deferred to MBP post-deploy.
 - mbp_monitor: 3-thread cadence split (power ~17s / mem 5s / battery 60s), Combined-Power parse, sudo -n, persistence decoupled from GUI + _pwr_history restored across restarts, GPU stale-repeat set None on miss (divergence from Studio's reviewed cosmetic-no-fix position; MBP's slower cycle justifies), peaks engine (schema 1, file-only) — engine landed in this commit via hunk fusion; PKV display deferred. NOTE: _load_peaks() startup call lands in the display commit; this checkout alone does not reload peaks — never deployed standalone. Measured: staged blob compiles standalone; additions scan 0; all three peaks defs staged.
 - mbp_monitor: env-file loader, env-overridable paths (incl. new MONITOR_PEAKS_FILE), schema 1 constants, Combined-Power regex + state scaffolding — declarations only. env.example gains MBP block; Studio placeholder paths moved to ~/ style. Measured: 28/28 anchors unique; staged blob py_compile standalone; additions scan 0; tracked env.example now 0 /Users/ hits.
 
