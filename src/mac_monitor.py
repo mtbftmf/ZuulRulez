@@ -108,13 +108,13 @@ STAT_COLORS = {
     "MEM": "#ffffff",   # 18.6:1
     "SSD": "#ff6633",   # 6.84:1
     "GHz": "#c084fc",   #  8.21:1  purple — distinct from GPU teal
-    "GPU": "#b4b4bc",   # 7.4:1   light grey — matches graph line
+    "GPU": "#b4b4bc",   # 7.4:1   light grey stat text (graph line is dark slate — intentional divergence)
     "PWR": "#ffd700",   # 14.23:1
     "SWP": "#ff8c00",   # 8.56:1
     "THM": "#00e676",   # 11.96:1
     "EFF": "#88aaff",   # 8.78:1
-    "G4":  "#e040fb",   #  7.21:1  violet — Gemma t/s, matches TPS graph line
-    "FLS": "#c060e0",   #  5.98:1  lighter violet — Flash t/s
+    "G4":  "#ffffff",   #  white — Gemma t/s (brightest on dark bg)
+    "FLS": "#e57ce5",   #  light magenta — Flash t/s (matches graph TPS line)
 }
 
 PRESSURE_COLORS = {"Green": "#00e676", "Yellow": "#ffd600", "Red": "#ff1744"}
@@ -128,11 +128,11 @@ GRAPH_COLORS = {
     "mem_green":  (0,   230, 118),   # 11.96:1
     "mem_yellow": (255, 214,   0),   # 14.14:1
     "mem_red":    (255,  68,  68),   #  5.86:1
-    "gpu":        (180, 180, 188),   #  ~8.5:1  light grey — background context, WU-style
+    "gpu":        (58, 68, 80),      #  dark slate — background band, no wash-out
     "swp":        (255, 100,   0),   #  7.08:1  distinct orange (was same red as mem_red)
     "delta":      (80,  80,  95),    #  3.2:1   dimmed — spike context only
     "eff":        (80,  100, 180),   #  3.42:1  muted blue-grey (context line, not primary)
-    "tps":        (224,  64, 251),   #  7.21:1  violet — distinct from SWP orange
+    "tps":        (229, 124, 229),   #  light magenta — primary TPS trace
     "grid":       (26,   26,  42),   #  decorative — contrast not required
     "label":      (119, 119, 170),   #  4.76:1  (was 68,68,102 — FAIL 2.15:1)
 }
@@ -844,7 +844,7 @@ canvas { background:#0a0a0f;border:1px solid #ff6eb4;width:100%;height:160px;dis
   <span class="label" style="color:#ff8c00">SWP</span><span class="value" style="color:#ff8c00" id="v-SWP">…</span>
   <span class="label" id="l-THM" style="color:#00e676">THM</span><span class="value" id="v-THM" style="color:#00e676">…</span>
   <span class="label" style="color:#88aaff">T/W</span><span class="value" style="color:#88aaff" id="v-EFF">…</span>
-  <span class="label" id="l-G4" style="color:#e040fb">💎</span><span class="value" id="v-G4" style="color:#e040fb">…</span>
+  <span class="label" id="l-G4" style="color:#ffffff">💎</span><span class="value" id="v-G4" style="color:#ffffff">…</span>
   <span class="label" id="l-FLS" style="color:#c060e0">🌩</span><span class="value" id="v-FLS" style="color:#c060e0">…</span>
 </div>
 <div class="graph-wrap">
@@ -853,11 +853,11 @@ canvas { background:#0a0a0f;border:1px solid #ff6eb4;width:100%;height:160px;dis
   <div class="legend">
     <span><span class="dot" style="background:#00e676"></span>MEM</span>
     <span><span class="dot" style="background:#ff6400"></span>SWP</span>
-    <span><span class="dot" style="background:#b4b4bc"></span>GPU</span>
-    <span><span class="dot" style="background:#aaaaaa"></span>MEM Δ</span>
+    <span><span class="dot" style="background:#3a4450"></span>GPU</span>
+    <span><span class="dot" style="background:#3a4450"></span>MEM Δ</span>
     <span><span class="dot" style="background:#5064b4"></span>T/W ÷10</span>
-    <span><span class="dot" style="background:#e040fb"></span>TPS ÷150</span>
-    <span><span class="dot" style="background:#e0e8e8"></span>⚡ ÷100W</span>
+    <span><span class="dot" style="background:#e57ce5"></span>TPS ÷150</span>
+    <span><span class="dot" style="background:#8a6d1f"></span>⚡ ÷100W</span>
   </div>
 </div>
 <div class="updated" id="updated">Updated: …</div>
@@ -907,14 +907,15 @@ function drawGraph(mem,gpu,swp,eff,tps,pwr){
   if(mem&&mem.length>=7){
     const d=[];
     for(let i=6;i<mem.length;i++){const dd=mem[i][1]-mem[i-6][1],dc=Math.min(10,Math.max(-10,dd));d.push([mem[i][0],Math.min(100,Math.max(0,50+dc*2.5))]);}
-    pl(d,'#aaaaaa');
+  // drawn FIRST so it sits UNDER every other series - at 10h density (7k segments in ~1100px) overlapping strokes stack 6+ deep and rgba alpha composites to near-opaque anyway; draw order, not alpha, is what keeps GPU/TPS/T-W readable
+  pl(mem,v=>v>95?'rgba(255,68,68,0.40)':v>80?'rgba(255,214,0,0.35)':'#00e676');  // panel GRAPH_COLORS hues at reduced alpha - full-brightness yellow floods the 10h canvas and hides every other series; panel hides it via mini-graph size alone
+    pl(d,'#50505f');  // panel GRAPH_COLORS delta (80,80,95)
   }
-  ctx.globalAlpha=0.5; pl(gpu,'#b4b4bc'); ctx.globalAlpha=1.0;
+  pl(gpu,'#3a4450');  // panel GRAPH_COLORS gpu (58,68,80) - dark slate by design, matches tkinter
   pl(eff,'#5064b4',ES);
-  pl(tps,'#e040fb',TS,60);
-  pl(pwr,'#e0e8e8',PS);  // off-white: gold saturated plot; stats row stays gold
+  pl(tps,'#e57ce5',TS,60);
+  pl(pwr,'rgba(138,109,31,0.10)',PS);  // dim gold — was off-white #e0e8e8; stats row stays gold
   pl(swp,'#ff6400');
-  pl(mem,v=>v>95?'#ff4444':v>80?'#ffd600':'#00e676');
 }
 function upd(d){
   ['USE','RAM','SSD','GHz','GPU','PWR','SWP','EFF'].forEach(k=>{

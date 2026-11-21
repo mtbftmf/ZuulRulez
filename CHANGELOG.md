@@ -256,3 +256,4 @@ count counter degrades to median-only per the known unreliable-count builds.
 Validation: first post-quarantine candidate 124.3255 at 09:13:59 (pre-guard
 daemon) confirmed class 4 tear - exceeds measured dual-stream aggregate ~110 -
 purged bootout-first, sidecar sealed. Both checks reject it in replay.
+- 2026-11-21 — root cause of the 'yellow mass': the PWR series (gold #8a6d1f, /100W, web-only; panel plots no PWR) painted full-height 2-105W swings over every series. Ghosted canvas stroke to rgba(138,109,31,0.10); legend dot stays solid. Measured: served page carries ghost color on 9090 and LAN 9443; new PID on reload.
