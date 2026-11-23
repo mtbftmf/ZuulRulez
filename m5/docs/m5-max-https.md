@@ -42,7 +42,7 @@ brew services start caddy
   system-domain job that is not there and leaves the running agent serving the old
   config while you believe otherwise. Never start Caddy by hand with caddy start,
   which inherits neither that domain nor its environment. Confirm a reload by content,
-  not by exit status: launchctl print gui/(id -u)/sh.brew.caddy | head -3, then curl
+  not by exit status: launchctl print gui/$(id -u)/sh.brew.caddy | head -3, then curl
   the certificate chain and check its issuer.
 ## Trust the CA (once per device)
 

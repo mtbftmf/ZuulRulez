@@ -3,6 +3,7 @@
 Newest first. Entries before Oct 16, 2026 were reconstructed from chat history.
 
 ## 2026-11-23
+- m5-max-https.md: restore the dollar sign in launchctl print gui/$(id -u)/sh.brew.caddy, dropped when the restart paragraph was written; the printed command would not run as pasted.
 - m5-max-https.md: the Caddyfile restart instruction now states the domain. sh.brew.caddy is a gui-domain LaunchAgent at ~/Library/LaunchAgents/sh.brew.caddy.plist, verified with launchctl print gui/503/sh.brew.caddy showing active count 1, so a sudo restart addresses a system-domain job that does not exist and silently leaves the old config loaded. The command itself is unchanged; the domain and the prohibition are the fix.
 - m5-operations.md and env examples: the inventory claim that DIFFER is expected for m5-secops.sh with tokens restored in the live copy is obsolete and would have hidden real drift. Measured: 34 regular, 28 symlinks, 1 directory, differs 0. New m5/config/m5-secops.env.example documents M5_CLONE_VOL and WIRED_LIMIT_MB, which no committed example carried; the root env.example documents macllm.env only.
 - m5/bin/caddy-pki-attest.sh: drop the source line for /usr/local/etc/m5-pki-local, deleted when machine values consolidated onto ~/.config/m5-secops.env; the REAL_HOME block is now the sole supplier of PKI_AUDIT_CLONE. Measured: attest_clone=/Volumes/Studio M5 CCC, verdict clean, find_errors=0, with the file gone.
