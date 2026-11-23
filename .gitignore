@@ -31,3 +31,4 @@ llm-probe-history.csv
 
 # Pre-wipe inventories (personal paths and file names)
 inventory-*/
+*.pre-*
