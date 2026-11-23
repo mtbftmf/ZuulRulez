@@ -40,7 +40,6 @@ LOGD=/usr/local/var/log
 ST=/usr/local/etc/m5-security-state
 XTRA=$REAL_HOME/bin/canary-extras.sh
 if [[ -r /usr/local/etc/m5-pki-local ]]; then . /usr/local/etc/m5-pki-local; fi  # machine values, not in git
-UUID="${M5_TASK_UUID:-<CCC-TASK-UUID>}"
 SRC_GROUP="${M5_SRC_GROUP:-$(diskutil info /System/Volumes/Data 2>/dev/null | awk -F':  *' '/Volume UUID/{print $2}' | head -1)}"
 MONPL=/Library/LaunchDaemons/com.user.macmonitor.plist
 ARCH=$REAL_HOME/bin/interim-archive.sh
