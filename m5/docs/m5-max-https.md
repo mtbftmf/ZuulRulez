@@ -111,17 +111,57 @@ Controls:
   gate's FAIL message prints the same three lines. An excluded clone restores
   without a CA, so a restored Studio needs `caddy trust` and an `m5-drift.sh
   snapshot` rebaseline. CCC writes the rules only when the task is saved in
-  its window. The gate's `ccc_exclusion_set` reads them with `sqlite3` from
-  `/Library/Application Support/com.bombich.ccc/MetaDataV6.db` (an SQLite
-  database in WAL mode; the rules sit in the settings blob of this task's row,
-  not in the per-task `TaskDBsV3` files), pinned to the task UUID. A path must be
-  followed by a character that cannot continue a path, so a rule for a subfolder
-  cannot satisfy the one for its parent. A failed or unparsable query prints
-  `unreadable_or_unparsable`, never `not_set`. It shows the strings exist, not
-  that the action is Exclude; the CCC window is ground truth for that.
+  CCC writes the rules only when the task is saved in its window. The gate's
+  `ccc_exclusion_set` asks CCC itself through
+  `/usr/local/sbin/ccc-exclusion-verdict.py`, which opens the task store read-only
+  and decodes each TASK `SETTINGS` binary plist with `plistlib` (`plutil -convert
+  json` fails on the `<date>` values these carry). The rules are read from
+  `rsync_filter.customFilterRules[].expressionString` and the boolean
+  `rsync_filter.hasExclusions`. Tasks are enumerated by
+  `sourceDisk.apfsVolumeGroupUUID`, never by searching the blob: `startupDiskUUID`
+  holds the same value in every task created on this Mac, so a blob search counts
+  tasks that clone other volumes. An earlier `sqlite3 instr()` search could not
+  distinguish an exclusion from any other mention of a path and reported
+  `named by 3 task rows` while one of the three sourced a RAID array.
+  Every task cloning this volume is asked, because a sibling task with an empty
+  Ignore list copies the CA key however the first task is configured. A failing
+  probe prints `unreadable_or_unparsable`, never `not_set`, so a broken check
+  cannot look like a missing rule. Offending task UUIDs go to
+  `/usr/local/var/log/ccc-exclusion-offenders` and are named in the gate's FAIL.
+  Re-run `m5-secops.sh refresh` after any change in the CCC window, and after any
+  edit to the verdict tool re-run `m5-secops.sh install`: root executes only the
+  root:wheel copy, never this file.
+
+- Destination verification is a Terminal action, not a daemon action. The
+  LaunchDaemon is denied `$CLONE/Users` and `$CLONE/opt/homebrew/var/lib/caddy`
+  (EPERM) while root from a Terminal holding Full Disk Access opens both, so a
+  `keys=0` from the daemon counts only directories it could read. Run
+  `sudo ~/bin/caddy-pki-attest.sh` after every completed CCC run; it writes
+  `/usr/local/var/log/caddy-pki-attest.state`. The gate accepts that attestation
+  for the destination clean verdict only when it is under 14 days old, names the
+  configured clone, and reports zero keys, zero encrypted archives and zero find
+  errors. The hourly audit keeps the snapshot tripwire, which the daemon can read.
+
+- Exposure ledger, 2026-11-23: task
+  `EDFDF3A2-60C5-4645-AE5E-C75B5ED2F0F4` (`CCC Backup Task`, the original, not the
+  hardened copy `2FEC566A`) had `hasExclusions: false` and completed a run on
+  2026-11-05, eleven days after the CA root was created. Its destination `M5CCC`
+  is not attached to this Mac, so those copies of `key.pem` cannot be deleted
+  from here and are treated as exposed. **CA rotation is the only control that
+  reaches them**; the exclusion added to the surviving task protects future runs
+  and nothing already written.
+
+- A restored clone restores an older Caddyfile. CCC preserves source mtimes, and
+  `<CLONE-VOLUME>/opt/homebrew/etc/Caddyfile` predates the `studio.home.arpa`
+  site, so a file-level restore from Recovery brings back a config without that
+  listener and `https://studio.home.arpa` will not complete a trusted handshake
+  until `/opt/homebrew/etc/Caddyfile` is restored separately. Because mtimes are
+  preserved, a `find -newermt` comparison cannot detect this; compare content.
 - `/usr/local/sbin/ccc-pki-audit.sh`, root:wheel 0755, hourly at :07. Root-executed
   code must not live on an admin-writable path, for the same reason the sudoers
   wrapper is pinned in `/usr/local/bin` and not `/opt/homebrew/bin`.
+- `caddy-pki-attest.sh`, run from a Terminal with sudo, is the destination control;
+  see the bullet above.
 - `m5-secops.sh refresh | verify | gate | install | emit | merge`.
 - Audit logs live under `/usr/local/var/log`, never `/tmp`, which macOS clears at
   boot and reaps after roughly three days.

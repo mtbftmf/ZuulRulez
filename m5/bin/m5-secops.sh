@@ -34,11 +34,14 @@ fi
 
 LAB=com.root.ccc-pki-audit
 ROOT=/usr/local/sbin/ccc-pki-audit.sh
+VT=/usr/local/sbin/ccc-exclusion-verdict.py
 PL=/Library/LaunchDaemons/$LAB.plist
 LOGD=/usr/local/var/log
 ST=/usr/local/etc/m5-security-state
 XTRA=$REAL_HOME/bin/canary-extras.sh
-UUID=<CCC-TASK-UUID>
+if [[ -r /usr/local/etc/m5-pki-local ]]; then . /usr/local/etc/m5-pki-local; fi  # machine values, not in git
+UUID="${M5_TASK_UUID:-<CCC-TASK-UUID>}"
+SRC_GROUP="${M5_SRC_GROUP:-$(diskutil info /System/Volumes/Data 2>/dev/null | awk -F':  *' '/Volume UUID/{print $2}' | head -1)}"
 MONPL=/Library/LaunchDaemons/com.user.macmonitor.plist
 ARCH=$REAL_HOME/bin/interim-archive.sh
 DOC=$REAL_HOME/ZuulRulez/m5/docs/m5-max-https.md
@@ -46,6 +49,8 @@ REL='opt/homebrew/var/lib/caddy/pki/authorities/local'
 PRIV=(root.key intermediate.key key.pem)
 CLONE="${PKI_AUDIT_CLONE:-<CLONE-VOLUME>}"
 ASTATE=/usr/local/var/log/ccc-pki-audit.state
+AATT=/usr/local/var/log/caddy-pki-attest.state
+OFFF=/usr/local/var/log/ccc-exclusion-offenders
 
 ok(){ print -r -- "PASS  $1"; }
 bad(){ print -r -- "FAIL  $1"; }
@@ -90,7 +95,7 @@ NAMEPAT="${PKI_AUDIT_NAMEPAT:-com\.bombich\.ccc}"
 OVERRIDE=""; (( EUID != 0 )) && OVERRIDE="${PKI_AUDIT_SNAPDIRS:-}"
 
 rc=0; scope=none; fail_reason=none
-snaps_ok=0; key_files=0; enc_files=0
+snaps_ok=0; key_files=0; enc_files=0; scan_errs=0
 SUDO=(); (( EUID != 0 )) && SUDO=(sudo)
 
 clone_mounted(){
@@ -101,6 +106,27 @@ clone_mounted(){
     [[ "$r" == "$1" ]] && return 0
   done < <(mount)
   return 1
+}
+
+# The destination BSD node is DERIVED from $CLONE, never hardcoded, never guessed. CCC's own
+# settings record this destination as /dev/disk9s1; it is disk15s1 today. Nodes are reassigned
+# whenever another volume attaches, so a stale node makes the audit scan whichever volume holds
+# that name and write that volume's verdict into the file the pre-update gate reads. Proven
+# 2026-11-23: a forced PKI_AUDIT_DISK=disk14s1 left another Mac's clone verdict in the live state
+# file. Unresolvable is a failure, not a guess.
+resolve_clone_disk(){
+  local d
+  if clone_mounted "$CLONE"; then
+    d=$(df -P "$CLONE" 2>/dev/null | awk 'NR==2{print $1}')
+    [[ "$d" == /dev/disk* ]] && { print -r -- "${d#/dev/}"; return 0; }
+  fi
+  # Unmounted: find the volume by name (last component of $CLONE). Exactly one match required;
+  # two volumes sharing a name cannot be told apart, so that yields nothing and fails closed.
+  diskutil apfs list 2>/dev/null | awk -v w="${CLONE:t}" '
+    /APFS Volume Disk \(Role\)/ { if (match($0,/disk[0-9]+s[0-9]+/)) d=substr($0,RSTART,RLENGTH) }
+    /^[[:space:]]*Name:/        { n=substr($0,index($0,"Name:")+5); gsub(/^[ \t]+|[ \t]+$/,"",n) }
+    /^[[:space:]]*Volume UUID:/ { if (n==w) { c++; last=d } }
+    END { if (c==1) print last }'
 }
 
 # The durable state is the only state the gate reads. Override/control runs write a separate
@@ -117,6 +143,9 @@ wstate(){
     print "generated_epoch=$(date +%s)"
     print "pki_audit_rc=$rc"
     print "pki_scope=$scope"
+    print "pki_device=${VOLDISK:-none}"
+    print "pki_clone=$CLONE"
+    print "pki_scan_errors=$scan_errs"
     print "pki_fail_reason=$fail_reason"
     print "ccc_snapshot_count=$sc"
     print "pki_snapshots_inspected=$snaps_ok"
@@ -133,12 +162,28 @@ wstate(){
 # Counts only. Leaf filenames are derivable from the SAN (LAN address or hostname), so the
 # log and the state must never carry the filenames themselves.
 scan(){
-  local r=$1 tag=$2 k=0 k2=0 e=0
-  k=$(find "$r/opt/homebrew/var/lib/caddy" -type f -maxdepth 8 -name '*.key' 2>/dev/null | wc -l | tr -d ' ')
-  if [[ -d "$r/Users" ]]; then
-    k2=$(find "$r/Users" -type f -maxdepth 8 -name '*.key' -path '*/Library/Application Support/Caddy/*' 2>/dev/null | wc -l | tr -d ' ')
-    e=$(find "$r/Users" -type f -maxdepth 8 -name 'caddy-pki-backup.zip.enc' -path '*/Backups/*' 2>/dev/null | wc -l | tr -d ' ')
+  local r=$1 tag=$2 k=0 k2=0 e=0 ef n=0
+  ef=$(mktemp 2>/dev/null) || ef=/dev/null
+  # An absent Homebrew Caddy dir IS the exclusion working, not a find error, so the read is
+  # guarded: a correctly clean destination logs zero errors, while a directory that exists and
+  # denies access still reports. Mirrors the -d guard on $r/Users below.
+  if [[ -d "$r/opt/homebrew/var/lib/caddy" ]]; then
+    k=$(find "$r/opt/homebrew/var/lib/caddy" -type f -maxdepth 8 -name '*.key' 2>>"$ef" | wc -l | tr -d ' ')
   fi
+  if [[ -d "$r/Users" ]]; then
+    k2=$(find "$r/Users" -type f -maxdepth 8 -name '*.key' -path '*/Library/Application Support/Caddy/*' 2>>"$ef" | wc -l | tr -d ' ')
+    e=$(find "$r/Users" -type f -maxdepth 8 -name 'caddy-pki-backup.zip.enc' -path '*/Backups/*' 2>>"$ef" | wc -l | tr -d ' ')
+  fi
+  # A count of zero and a find denied the directory are different facts. Two false zeros today
+  # came from stderr discarded as 2>/dev/null: an EPERM clone root, then an EPERM snapshot mount.
+  # Errors are logged, counted and carried into the state so a partial read cannot read as clean.
+  if [[ "$ef" != /dev/null && -s "$ef" ]]; then
+    n=$(grep -c . "$ef" 2>/dev/null); n=${n:-0}
+    scan_errs=$(( scan_errs + n ))
+    { print "=== scan $tag: $n find error(s)"; cat "$ef"; } >> "$LOGDIR/ccc-pki-audit.err" 2>/dev/null
+    print -u2 "scan $tag: $n find error(s) logged to $LOGDIR/ccc-pki-audit.err"
+  fi
+  [[ "$ef" != /dev/null ]] && rm -f "$ef"
   k=$(( k + k2 )); key_files=$(( key_files + k )); enc_files=$(( enc_files + e ))
   print "scan $tag: private_key_files=$k enc_backups=$e"
   # Explicit return required. (( k > 0 || e > 0 )) was the last statement, so a clean scan
@@ -156,15 +201,19 @@ if [[ -n "$OVERRIDE" ]]; then
   wstate; exit $rc
 fi
 
-if [[ -z "$VOLDISK" ]] && clone_mounted "$CLONE"; then
-  _cv=$(df -P "$CLONE" 2>/dev/null | awk 'NR==2{print $1}')
-  [[ "$_cv" == /dev/disk* ]] && VOLDISK=${_cv#/dev/}
+[[ -n "$VOLDISK" ]] || VOLDISK=$(resolve_clone_disk)
+if [[ -z "$VOLDISK" ]]; then
+  print -u2 "CHECK FAILED: no single attached volume named ${CLONE:t}; refusing a stale node"
+  rc=2; fail_reason=device_unresolved; wstate; exit 2
 fi
-[[ -n "$VOLDISK" ]] || VOLDISK=disk15s1
 print "device=$VOLDISK mounted=$(clone_mounted "$CLONE" && echo yes || echo no)"
 
 if clone_mounted "$CLONE"; then
-  [[ -d "$CLONE/opt/homebrew/var/lib/caddy" ]] || {
+  # Must test a path the Ignore rules deliberately KEEP. It tested the very directory the first
+  # rule exists to empty, so the better the exclusion works the more certainly this failed: a
+  # correctly clean destination reported destination_incomplete and blocked every pre-update run.
+  # The Caddyfile is outside every rule, is not regenerable, and is verified present on the clone.
+  [[ -f "$CLONE/opt/homebrew/etc/Caddyfile" ]] || {
     print -u2 "CHECK FAILED: destination not a complete copy"
     rc=2; fail_reason=destination_incomplete; wstate; exit 2
   }
@@ -205,7 +254,19 @@ AUDIT_EOF
   [[ "$dm" == "root|wheel|drwxr-xr-x" ]] || { bad "/usr/local/sbin is $dm — abort"; return 1; }
   ok "/usr/local/sbin $dm"
 
-  if sudo install -o root -g wheel -m 0755 "$d/audit.sh" "$ROOT" && sudo zsh -n "$ROOT"; then
+    # The verdict tool reads CCC's own settings. Root must never execute a user-writable
+  # script, so install a root:wheel snapshot and run only that. Ownership is asserted
+  # before anything invokes it; a mismatch aborts the install rather than degrading.
+  local vs="" v
+  for v in "${(%):-%x:A:h}/ccc-exclusion-verdict.py" "$REAL_HOME/bin/ccc-exclusion-verdict.py" "$REAL_HOME/ZuulRulez/m5/bin/ccc-exclusion-verdict.py"; do
+    [[ -f "$v" ]] && { vs="$v"; break; }
+  done
+  [[ -n "$vs" ]] || { bad "ccc-exclusion-verdict.py not found beside m5-secops.sh"; return 1; }
+  sudo install -o root -g wheel -m 0755 "$vs" "$VT" || { bad "install of $VT failed"; return 1; }
+  local vm; vm=$(stat -f '%Su|%Sg|%Sp' "$VT" 2>/dev/null)
+  [[ "$vm" == "root|wheel|-rwxr-xr-x" ]] || { bad "$VT is $vm - abort"; return 1; }
+  ok "verdict tool $VT $vm"
+if sudo install -o root -g wheel -m 0755 "$d/audit.sh" "$ROOT" && sudo zsh -n "$ROOT"; then
     local fm; fm=$(sudo stat -f '%Su|%Sg|%Sp' "$ROOT")
     [[ "$fm" == "root|wheel|-rwxr-xr-x" ]] && ok "$ROOT $fm" || { bad "mode $fm"; return 1; }
     rm -f "$REAL_HOME/bin/ccc-pki-audit.sh"
@@ -274,26 +335,27 @@ run_emitter(){
   env $env "$XTRA" "${@:5}"
 }
 
-# ccc_rules_state DB: set | not_set | partial_NofM | task_missing | ccc_db_missing | unreadable_or_unparsable.
-# The Ignore rules live in CCC's task store, MetaDataV6.db: an SQLite 3 database in WAL mode (not a property
-# list). They sit inside the SETTINGS blob of the one TASK row for this task, so the query is pinned to the task UUID
-# and reads through sqlite3 (a raw byte search can miss rows still in the -wal file). MetaDataV6Archived.db is not read.
-# A match is the path followed by a character that cannot continue a path, so a rule for a subfolder such as
-# <path>/pki cannot satisfy the rule for <path>. The comparison is on the blob's bytes: cast(SETTINGS as text) stops at the
-# first NUL byte, and the settings plist has many, so text functions would see nothing after it and pass any rule.
-# A subfolder rule stored before the exact rule makes that path read as missing (partial): it fails closed. One query returns three integers (task rows | blob length | rules
-# found); anything else, a nonzero exit, an empty blob or an unsubstituted UUID prints unreadable_or_unparsable,
-# never not_set, so a broken query cannot look like a missing rule. It shows the strings exist, not that the
-# action is Exclude: the CCC window is ground truth for that.
-#
-# The per-user paths are enumerated from /Users, never built from $USER or $SUDO_USER. Under sudo $USER is root,
-# which asked CCC about /Users/root and reported a true-looking partial; a root LaunchDaemon has no $SUDO_USER at all.
-# Enumerating also covers every local account, so a rule missing for a newly added user fails closed instead of
-# being silently absent from the question.
+# ccc_rules_state: asks CCC itself, per task, whether Caddy private material is excluded.
+# It prints one token: set | not_set | partial_NofM | task_missing | ccc_db_missing |
+# unreadable_or_unparsable. The rules are read from rsync_filter.customFilterRules[].
+# expressionString and rsync_filter.hasExclusions, decoded from each TASK SETTINGS binary
+# plist by ccc-exclusion-verdict.py. An earlier version searched the SETTINGS blob for the
+# path strings with sqlite3 instr(), which could not tell an exclusion from any other
+# mention of a path, and enumerated tasks by matching this volume group UUID anywhere in
+# the blob, which also matches startupDiskUUID - the same value in every task created on
+# this Mac - so it counted tasks cloning other volumes (it matched 0F5CFC42, sourced on
+# TB5KinstonRAID0) while reporting named by 3 task rows. The predicate is now
+# sourceDisk.apfsVolumeGroupUUID. Enumerated, not pinned: every task cloning this volume
+# is asked, because a sibling task with an empty Ignore list copies the CA key however the
+# first task is configured. Proven 2026-11-23: the pinned task reported set while task
+# EDFDF3A2 carried hasExclusions false and had already run against a destination now
+# absent. Unreadable is never reported as not_set, so a broken probe cannot look like a
+# missing rule, and a missing rule is never reported as set.
+
 ccc_rules_state(){
-  local db=$1 out rc rows rest len hits p vals="" tries=0 skipped=0 errf
-  local -a want
-  local h un seen=0
+  local db=$1 out uuid minhits=-1 ntasks=0 rows len hits rest vals="" sql
+  local -a want tasks
+  local h un p seen=0 skipped=0 all=1
   [[ -d /opt/homebrew/var/lib/caddy ]] && want+=(/opt/homebrew/var/lib/caddy)
   for h in /Users/*(N-/); do
     un=${h:t}
@@ -302,60 +364,34 @@ ccc_rules_state(){
     [[ -d "$h/Library/Application Support/Caddy" ]] && want+=("/Users/$un/Library/Application Support/Caddy")
     [[ -e "$h/Backups/caddy-pki-backup.zip.enc"  ]] && want+=("/Users/$un/Backups/caddy-pki-backup.zip.enc")
   done
-  # A rule is demanded only where source material exists: asking CCC about homes that hold no
-  # Caddy material produces a true-looking partial and a FAIL with nothing wrong. Skipped and
-  # examined counts are printed so a change in shape is visible rather than silently clean.
   print -u2 "coverage: $seen home(s) examined, $skipped skipped, ${#want} source path(s) require a rule"
   (( ${#want} > 0 )) || { print -u2 'no Caddy material on the source: the question is vacuous, not clean'; print unreadable_or_unparsable; return; }
-
   sudo test -e "$db" || { print ccc_db_missing; return; }
-  [[ "$UUID" =~ ^[0-9A-Fa-f-]{36}$ ]] || { print unreadable_or_unparsable; return; }
-  for p in $want; do
-    [[ "$p" == *\'* ]] && { print unreadable_or_unparsable; return; }
-    vals+="${vals:+,}('$p')"
-  done
-
-  # Diagnostics go to a file, never into the parsed value: piping 2>&1 into a variable turns
-  # lock noise into a string that satisfies no branch and reports a state that was never measured.
-  errf=$(mktemp) || { print unreadable_or_unparsable; return; }
-  local sql
-  local mode tries=0
-  sql="with rules(p) as (values $vals) select (select count(*) from TASK where UUID='$UUID'), (select coalesce(max(length(SETTINGS)),0) from TASK where UUID='$UUID'), (select count(*) from rules where exists (select 1 from TASK where UUID='$UUID' and instr(SETTINGS,cast(p as blob))>0 and cast(substr(SETTINGS, instr(SETTINGS,cast(p as blob))+length(cast(p as blob)), 1) as text) not glob '[A-Za-z0-9/._ -]'));"
-  # -readonly is not always available: once CCC checkpoints and removes the -wal and -shm
-  # files, SQLite cannot open a WAL-mode database read-only at all and reports CANTOPEN (14).
-  # The check was therefore intermittent by construction, succeeding only while CCC happened
-  # to hold the database open. Try the non-mutating open first, then a write-capable open
-  # restricted to queries, then once more for lock contention. Which mode produced the answer
-  # is printed, so a fallback reading is visible rather than silent. Failure stays
-  # unreadable_or_unparsable: never a clean verdict from a read that did not happen.
-  for mode in readonly query_only query_only; do
-    errf=$(mktemp)
-    if [[ $mode == readonly ]]; then
-      out=$(sudo sqlite3 -readonly -list -noheader -cmd ".timeout 8000" "$db" "$sql" 2>"$errf"); rc=$?
-    else
-      out=$(sudo sqlite3 -list -noheader -cmd ".timeout 8000" -cmd "PRAGMA query_only=ON" "$db" "$sql" 2>"$errf"); rc=$?
-    fi
-    if (( rc == 0 )); then
-      print -u2 "sqlite read mode: $mode"
-      rm -f "$errf"
-      break
-    fi
-    grep -q 'unable to open database file' "$errf" || { print -u2 "sqlite note: $(<"$errf")"; rm -f "$errf"; break; }
-    (( ++tries ))
-    print -u2 "sqlite: $mode open did not work; attempt $tries"
-    rm -f "$errf"
-    sleep $(( tries * 2 ))
-  done
-  [[ -s "$errf" ]] && print -u2 "sqlite note: $(<"$errf")"
-  rm -f "$errf"
-
-  [[ $rc == 0 && "$out" =~ ^[0-9]+\|[0-9]+\|[0-9]+$ ]] || { print unreadable_or_unparsable; return; }
-  rows=${out%%|*}; rest=${out#*|}; len=${rest%%|*}; hits=${rest#*|}
-  (( rows == 1 )) || { print task_missing; return; }
-  (( len > 0 ))   || { print unreadable_or_unparsable; return; }
-  if (( hits == ${#want} )); then print set
-  elif (( hits == 0 )); then print not_set
-  else print partial_${hits}of${#want}; fi
+  # Verdict comes from settings CCC itself holds, decoded: rsync_filter.customFilterRules[]
+  # .expressionString on every task whose sourceDisk.apfsVolumeGroupUUID is this Data volume.
+  # The SQL this replaces matched a byte string anywhere in the SETTINGS blob, which also
+  # matches startupDiskUUID, the same group UUID in every task created on this Mac, so it
+  # counted tasks that clone other volumes (it matched 0F5CFC42, sourced on TB5KinstonRAID0)
+  # and it could not tell an exclusion from any other mention of a path. Root executes only
+  # the root-owned copy that do_install places, never this file.
+  [[ -x "$VT" ]] || { print -u2 "verdict tool missing at $VT - run: m5-secops.sh install"; print unreadable_or_unparsable; return; }
+  local vm; vm=$(stat -f '%Su|%Sg|%Sp' "$VT" 2>/dev/null)
+  [[ "$vm" == 'root|wheel|-rwxr-xr-x' ]] || { print -u2 "refusing to run $VT: owner/mode are $vm"; print unreadable_or_unparsable; return; }
+  local py=/usr/bin/python3; [[ -x /opt/homebrew/bin/python3 ]] && py=/opt/homebrew/bin/python3
+  local -a args=(--group "${SRC_GROUP:-none}") ap
+  for ap in "${want[@]}"; do args+=(--path "$ap"); done
+  local ef tok rc
+  ef=$(mktemp) || { print unreadable_or_unparsable; return; }
+  out=$(sudo "$py" "$VT" "${args[@]}" 2>"$ef"); rc=$?
+  OFFSRC=$(print -r -- "$(<"$ef")" | awk -F= '/^offender/{printf "%s%s", p, $2; p=","}')
+  [[ -z "$OFFSRC" ]] && OFFSRC=$(print -r -- "$out" | awk -F= '/^offender/{printf "%s%s", p, $2; p=","}')
+  [[ -s "$ef" ]] && cat "$ef" >&2
+  rm -f "$ef"
+  tok=$(print -r -- "$out" | tail -1 | tr -d '[:space:]')
+  [[ "$tok" =~ ^(set|not_set|task_missing|unreadable|partial_[0-9]+of[0-9]+)$ ]] || { print -u2 "unexpected verdict token: ${tok:0:40} (rc=$rc)"; print unreadable_or_unparsable; return; }
+  [[ "$tok" == unreadable ]] && tok=unreadable_or_unparsable
+  print -r -- "${OFFSRC:-none}" | sudo tee "$OFFF" >/dev/null 2>&1 || print -u2 "offender list not recorded to $OFFF"
+  print "$tok"
 }
 
 # --------------------------------------------------------------- refresh ----
@@ -374,12 +410,14 @@ do_refresh(){
   (( runs_ok == 0 )) 2>/dev/null; rp=${rp:-0}
 
   exc=$(ccc_rules_state "/Library/Application Support/com.bombich.ccc/MetaDataV6.db")
+  local off; off=$(sudo cat "$OFFF" 2>/dev/null); off=${off:-none}
 
   if sudo -n -l /usr/local/bin/run-powermetrics >/dev/null 2>&1; then sgr=present
   else sgr=absent_or_needs_password; fi
 
   { print "generated_epoch=$(date +%s)"
     print "ccc_exclusion_set=$exc"
+    print "ccc_exclusion_offenders=${off:-none}"
     print "sudoers_powermetrics_grant=$sgr"
     print "audit_script_state=$aud"
     print "audit_script_owner=$am"
@@ -435,6 +473,7 @@ do_gate(){
   local S=$ST exc aud fire runs llok mpath guard pki page bad=0
   [[ -r $S ]] || { bad "state file missing — run: $0 refresh"; return 1; }
   exc=$(awk -F= '/^ccc_exclusion_set/{print $2}' "$S")
+  local off; off=$(awk -F= '/^ccc_exclusion_offenders/{print $2}' "$S" 2>/dev/null); [[ -n "$off" && "$off" != none ]] || off=$(sudo cat "$OFFF" 2>/dev/null)
   aud=$(awk -F= '/^audit_script_state/{print $2}' "$S")
   fire=$(awk -F= '/^launchd_fired/{print $2}' "$S")
   runs=$(awk -F= '/^launchd_runs/{print $2}' "$S")
@@ -458,29 +497,66 @@ do_gate(){
   [[ -e $ARCH ]] && grep -q '^# STALE PLIST guard' "$ARCH" && guard=yes
 
   print -r -- "================ M5 pre-update security gate ================"
-  [[ "$exc"  == set       ]] && ok  "ccc_exclusion_set=set (${sadj}s old; rule paths present in this task's CCC settings; Exclude action not checked)" || { bad  "ccc_exclusion_set=$exc (${sadj}s old) — CCC UI, task ${UUID:0:8}, Ignore list must hold the Homebrew Caddy dir, each local user's Library/Application Support/Caddy, and each user's Backups/caddy-pki-backup.zip.enc"; bad=1; }
+  [[ "$exc" == set ]] && ok  "ccc_exclusion_set=set (${sadj}s old; rules read from rsync_filter.customFilterRules, hasExclusions=true, on every task whose source is this volume)" || { bad  "ccc_exclusion_set=$exc (${sadj}s old) - a task that clones this volume leaves Caddy private material unprotected; offenders: ${off:-unknown}; add the Homebrew Caddy dir, each local user's Library/Application Support/Caddy and each user's Backups/caddy-pki-backup.zip.enc to that task's Ignore list, or disable the task"; bad=1; }
   [[ "$aud"  == installed ]] && ok  "tripwire installed (root:wheel /usr/local/sbin)" || { bad  "tripwire $aud"; bad=1; }
   [[ "$fire" == yes       ]] && ok  "tripwire fired (runs=$runs)"                  || { bad  "tripwire never fired"; bad=1; }
   [[ "$llok" != /tmp/* && "$llok" != none ]] && ok "tripwire log path persistent"   || { bad  "tripwire log path $llok — /tmp is cleared at boot and reaped ~3d"; bad=1; }
   # Mount is decided first: an absent destination is NOT_CHECKED whether the stored verdict is
   # clean or exposure, so neither a stale clean passes nor a stale exposure blocks.
-  local pscope pfail pkeys pbacks psnaps
+  local pscope pfail pkeys pbacks psnaps pdev pclone perrs
   pscope=$(awk -F= '/^pki_scope/{print $2}' "$ASTATE" 2>/dev/null)
   pfail=$(awk -F= '/^pki_fail_reason/{print $2}' "$ASTATE" 2>/dev/null)
   pkeys=$(awk -F= '/^pki_private_key_files/{print $2}' "$ASTATE" 2>/dev/null)
   pbacks=$(awk -F= '/^pki_encrypted_backups/{print $2}' "$ASTATE" 2>/dev/null)
   psnaps=$(awk -F= '/^pki_snapshots_inspected/{print $2}' "$ASTATE" 2>/dev/null)
-  local pmsg="keys=${pkeys:-?} enc_backups=${pbacks:-?} scope=${pscope:-unknown}"
+  pdev=$(awk -F= '/^pki_device/{print $2}' "$ASTATE" 2>/dev/null)
+  pclone=$(awk -F= '/^pki_clone/{print $2}' "$ASTATE" 2>/dev/null)
+  perrs=$(awk -F= '/^pki_scan_errors/{print $2}' "$ASTATE" 2>/dev/null)
+  local pmsg="keys=${pkeys:-?} enc_backups=${pbacks:-?} scope=${pscope:-unknown} device=${pdev:-unrecorded} find_errors=${perrs:-?}"
   # A destination scan and a snapshot scan are different claims and must not print one line.
   # Only the destination scan reads the volume a restore would come from; a snapshot scan reads
   # recovery points and says nothing about whether the live clone holds private material.
   # could_not_check now blocks: an unmeasured clone is not a clean clone before an update.
-  if   ! clone_mounted "$CLONE";                          then warn "live clone PKI: NOT_CHECKED (destination not mounted; stored verdict: $pki, $pmsg)"
-  elif [[ "$pki" == exposure ]];                          then bad  "live clone PKI EXPOSED (${page}s old; $pmsg) - Caddy private CA material present on the clone"; bad=1
-  elif [[ "$pki" == clean && "$pscope" == destination ]]; then ok   "live clone PKI: clean (${page}s old; $pmsg) - read the mounted clone: Homebrew pki dir, every local user account under Library/Application Support/Caddy, caddy-pki-backup.zip.enc"
-  elif [[ "$pki" == clean ]];                             then warn "live clone PKI: clean by SNAPSHOT scan only (${page}s old; $pmsg, snapshots_inspected=${psnaps:-?}) - the mounted destination was not read; this does not clear the live clone"
-  elif [[ "$pki" == could_not_check ]];                   then bad  "live clone PKI: could_not_check (${page}s old; reason=${pfail:-none})"; bad=1
-  else                                                         warn "live clone PKI: NOT_CHECKED (audit state $pki${pfail:+, reason=$pfail})"
+  # Identity before mount: a verdict about another volume is not evidence about this one, and a
+  # clean count taken after find was denied the directory is not a clean count.
+  # Every string test lives in [[ ]] and only 0/1 reaches (( )). zsh evaluates a bare word in
+  # (( )) as a PARAMETER reference, so the original "$pscope" == destination aborted with
+  # "destination: parameter not set", the elif evaluated false, and the chain printed PASS on
+  # a destination the daemon was denied. Proven by xtrace 2026-11-23; an isolated repro that
+  # printed TRUE misled the first two attempts at this fix.
+  local pid=0 perr=0
+  [[ -n "$pclone" && "$pscope" == destination && "$pclone" != "$CLONE" ]] && pid=1
+  [[ "$pscope" == destination && ${perrs:-0} -gt 0 ]] && perr=1
+  # A denied read is not a clean read, so the launchd audit can never clear this destination
+  # on its own. A root run from Terminal holding Full Disk Access can: that context is proven
+  # to open $CLONE/Users and $CLONE/opt/homebrew/var/lib/caddy, which the daemon is refused.
+  # Accepted only when clean, error-free, naming this clone and under 14 days old. The
+  # exposure branch below outranks this one, so an attestation can never mask a key the
+  # audit itself found.
+  local att=0 att_age=99999999 att_keys=none att_enc=none att_errs=none att_by=none att_clone=none
+  local ae av af ak ae2 ac an
+  if test -r "$AATT"; then
+    ae=$(awk -F= '/^attest_epoch/{print $2}' "$AATT")
+    av=$(awk -F= '/^attest_verdict/{print $2}' "$AATT")
+    af=$(awk -F= '/^attest_find_errors/{print $2}' "$AATT")
+    ak=$(awk -F= '/^attest_keys/{print $2}' "$AATT")
+    ae2=$(awk -F= '/^attest_encrypted/{print $2}' "$AATT")
+    ac=$(awk -F= '/^attest_clone/{print $2}' "$AATT")
+    an=$(awk -F= '/^attest_by/{print $2}' "$AATT")
+    [[ "$ae" =~ ^[0-9]+$ ]] && att_age=$(( $(date +%s) - ae ))
+    if [[ "$av" == clean && "${af:-1}" == 0 && "${ak:-1}" == 0 && "${ae2:-1}" == 0 && "$ac" == "$CLONE" ]]; then
+      (( att_age >= 0 && att_age <= 1209600 )) && { att=1; att_keys=$ak; att_enc=$ae2; att_errs=$af; att_by=${an:-root}; att_clone=$ac; }
+    fi
+  fi
+  if   (( pid ));  then bad "live clone PKI: verdict describes $pclone, not $CLONE - NOT_CHECKED for this destination"; bad=1
+  elif [[ "$pki" == exposure ]]; then bad  "live clone PKI EXPOSED (${page}s old; $pmsg) - Caddy private CA material present on the clone"; bad=1
+  elif (( att ));  then ok   "live clone PKI: clean by Terminal attestation (age=${att_age}s keys=${att_keys} enc=${att_enc} find_errors=${att_errs} by ${att_by}) - the launchd audit is denied this destination, so a reader holding Full Disk Access is the only evidence that counts"
+  elif (( perr )); then bad "live clone PKI: clean claimed after ${perrs} find error(s) - a denied read is not a clean read; attest with sudo ~/bin/caddy-pki-attest.sh (state $AATT)"; bad=1
+  elif ! clone_mounted "$CLONE"; then warn "live clone PKI: NOT_CHECKED (destination not mounted; stored verdict: $pki, $pmsg; attestation state: $AATT)"
+  elif [[ "$pki" == clean && "$pscope" == destination ]]; then ok "live clone PKI: clean on the mounted clone (${page}s old; $pmsg)"
+  elif [[ "$pki" == clean ]]; then warn "live clone PKI: clean by SNAPSHOT scan only (${page}s old; $pmsg, snapshots_inspected=${psnaps:-?}) - the mounted destination was not read; this does not clear the live clone"
+  elif [[ "$pki" == could_not_check ]]; then bad "live clone PKI: could_not_check (${page}s old; reason=${pfail:-none})"; bad=1
+  else warn "live clone PKI: NOT_CHECKED (audit state $pki${pfail:+, reason=$pfail})"
   fi
   [[ "$mpath" != /tmp/*   ]] && ok  "macmonitor log path ok"                   || { bad  "macmonitor logs to /tmp — stale pre-2026-11-07 plist"; bad=1; }
   [[ "$guard" == yes      ]] && ok  "interim-archive stale-plist guard present"     || warn "interim-archive guard missing"
@@ -492,7 +568,7 @@ do_gate(){
     grep -q 'mbp_monitor_508'  "$DOC" && warn "$DOC: references deleted src/mbp_monitor_508.py"
   fi
 
-  warn "manual: ccc_exclusion_set shows the rule paths exist in this task's CCC settings, not that the action is Exclude; confirm in the CCC window. A completed run holding none of the source's Caddy private material is the functional proof of the exclusion's effect."
+  warn "manual: the verdict asks only tasks whose sourceDisk.apfsVolumeGroupUUID is this Data volume. Run m5-secops.sh refresh after any change in the CCC window, and re-attest (sudo ~/bin/caddy-pki-attest.sh) after every completed CCC run."
   warn "manual: Startup Manager boot test for the clone (single roleless APFS volume — plan file-level restore from Recovery)"
   warn "manual: retired M5CCC destination unaccounted — assumed exposed"
   warn "coverage: the audit counts, never reads, *.key under the Homebrew pki dir, under every local user account under Library/Application Support/Caddy, and caddy-pki-backup.zip.enc; it reads the configured clone destination when mounted, otherwise CCC snapshots on that device. Any other destination, including retired ones, is never inspected."
