@@ -6,7 +6,6 @@
 # open. Run: sudo ~/bin/caddy-pki-attest.sh   (re-run after every completed CCC run; the gate
 # rejects an attestation older than 14 days, for another clone, or taken with find errors.)
 set -u
-if [[ -r /usr/local/etc/m5-pki-local ]]; then . /usr/local/etc/m5-pki-local; fi  # machine values, not in git
 # Resolve the invoking human, not $HOME: this runs under sudo and $HOME is not
 # guaranteed to be theirs, which would make the destination control silently inert.
 REAL_USER=${SUDO_USER:-$(stat -f%Su /dev/console 2>/dev/null)}
