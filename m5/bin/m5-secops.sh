@@ -39,7 +39,8 @@ PL=/Library/LaunchDaemons/$LAB.plist
 LOGD=/usr/local/var/log
 ST=/usr/local/etc/m5-security-state
 XTRA=$REAL_HOME/bin/canary-extras.sh
-if [[ -r /usr/local/etc/m5-pki-local ]]; then . /usr/local/etc/m5-pki-local; fi  # machine values, not in git
+if [[ -r "$REAL_HOME/.config/m5-secops.env" ]]; then . "$REAL_HOME/.config/m5-secops.env"; fi  # machine values, not in git
+[[ -n "${M5_CLONE_VOL:-}" ]] && PKI_AUDIT_CLONE="$M5_CLONE_VOL"
 SRC_GROUP="${M5_SRC_GROUP:-$(diskutil info /System/Volumes/Data 2>/dev/null | awk -F':  *' '/Volume UUID/{print $2}' | head -1)}"
 MONPL=/Library/LaunchDaemons/com.user.macmonitor.plist
 ARCH=$REAL_HOME/bin/interim-archive.sh
@@ -245,6 +246,20 @@ fi
 wstate
 exit $rc
 AUDIT_EOF
+  # The clone path is copied into the root-owned audit verbatim so the daemon never
+  # depends on a config file an admin can write. Substitute the value resolved at the
+  # top of this script. A surviving token is fatal, not cosmetic: the audit would scan
+  # a path that never mounts, report scope=none, and the snapshot tripwire would go
+  # blind while every other line still read PASS.
+  local rendered; rendered=$(<"$d/audit.sh")
+  rendered=${rendered//'<CLONE-VOLUME>'/$CLONE}
+  print -r -- "$rendered" > "$d/audit.sh"
+  local tks; tks=$(grep -n '<CLONE-VOLUME>\|<CCC-TASK-UUID>' "$d/audit.sh")
+  if [[ -n "$tks" ]]; then
+    print -u2 "abort: inert token survives in the rendered audit:"
+    print -u2 "$tks"
+    return 1
+  fi
 
   zsh -n "$d/audit.sh" && ok "candidate parses" || { bad "candidate broken — nothing touched"; return 1; }
 
@@ -524,7 +539,11 @@ do_gate(){
   # a destination the daemon was denied. Proven by xtrace 2026-11-23; an isolated repro that
   # printed TRUE misled the first two attempts at this fix.
   local pid=0 perr=0
-  [[ -n "$pclone" && "$pscope" == destination && "$pclone" != "$CLONE" ]] && pid=1
+  # Identity is checked regardless of scope: a wrong CLONE inside the rendered audit yields
+  # scope=none rather than a mismatching destination verdict, and scoping this test to
+  # destination let a mis-pathed daemon read as merely inconclusive while an attestation
+  # carried the clean verdict.
+  [[ -n "$pclone" && "$pclone" != "$CLONE" ]] && pid=1
   [[ "$pscope" == destination && ${perrs:-0} -gt 0 ]] && perr=1
   # A denied read is not a clean read, so the launchd audit can never clear this destination
   # on its own. A root run from Terminal holding Full Disk Access can: that context is proven

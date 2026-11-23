@@ -168,14 +168,14 @@ Controls:
 - Adding the exclusion does not rotate the root, so no client re-trust and no
   `m5-drift.sh snapshot` rebaseline are required.
 
-Reconstructing a runnable copy: the committed tools are redacted, with
-`<CLONE-VOLUME>` and `<CCC-TASK-UUID>` as inert tokens — deliberately not shell
-variables, because the clone path also appears inside the heredoc that generates
-the root audit script, where a runtime variable would give the root daemon an
-undocumented dependency on a user config file. Restore before install:
-
-    set -a; source ~/.config/m5-secops.env; set +a
-    sed -e "s|<CLONE-VOLUME>|$M5_CLONE_VOL|g" \
-        -e "s|<CCC-TASK-UUID>|$M5_CCC_TASK_UUID|g" \
-        m5/bin/m5-secops.sh > ~/bin/m5-secops.sh
-    chmod 755 ~/bin/m5-secops.sh
+Reconstructing a runnable copy: the committed scripts carry one inert token,
+<CLONE-VOLUME>, as the fallback default for CLONE, and nothing needs substituting
+by hand. m5-secops.sh and caddy-pki-attest.sh resolve the clone path at run time by
+sourcing ~/.config/m5-secops.env (0600, M5_CLONE_VOL, written by m5-ship.sh and
+never committed), resolving the invoking human through SUDO_USER, the console owner
+and dscl rather than $HOME because caddy-pki-attest.sh runs under sudo. The root
+audit is deliberately different: install substitutes the resolved path into the
+rendered script and aborts if the token would survive, so the daemon holds no
+dependency on a user-writable config file. The task-UUID placeholder is gone
+entirely: the exclusion verdict enumerates tasks by
+sourceDisk.apfsVolumeGroupUUID, so no single task is pinned or trusted.

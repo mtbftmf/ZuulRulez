@@ -7,6 +7,13 @@
 # rejects an attestation older than 14 days, for another clone, or taken with find errors.)
 set -u
 if [[ -r /usr/local/etc/m5-pki-local ]]; then . /usr/local/etc/m5-pki-local; fi  # machine values, not in git
+# Resolve the invoking human, not $HOME: this runs under sudo and $HOME is not
+# guaranteed to be theirs, which would make the destination control silently inert.
+REAL_USER=${SUDO_USER:-$(stat -f%Su /dev/console 2>/dev/null)}
+REAL_HOME=$(dscl . -read "/Users/${REAL_USER:-root}" NFSHomeDirectory 2>/dev/null | awk '{print $2}')
+[[ -n "${REAL_HOME:-}" ]] || REAL_HOME=$HOME
+if [[ -r "$REAL_HOME/.config/m5-secops.env" ]]; then . "$REAL_HOME/.config/m5-secops.env"; fi  # machine values, not in git
+[[ -n "${M5_CLONE_VOL:-}" ]] && PKI_AUDIT_CLONE="$M5_CLONE_VOL"
 CLONE="${PKI_AUDIT_CLONE:-<CLONE-VOLUME>}"
 OUT=/usr/local/var/log/caddy-pki-attest.state
 (( EUID == 0 )) || { print -u2 "run with sudo"; exit 2 }
