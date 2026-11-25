@@ -1,77 +1,613 @@
 {
-  "about": "Self-grading tasks for llm-compare.py grade. Every task has a mechanical pass/fail check, so two setups can be scored without reading the answers. Categories: code (the answer's Python runs against hidden tests in a sandbox), tools (the right tool call with the right arguments, or no call), json (JSON only, compared to the expected value), answer (a final 'ANSWER:' line), format (instruction following). Synthetic data only; nothing personal.",
-  "tools": [
-    {"type": "function", "function": {"name": "get_weather", "description": "Current weather for a city.",
-      "parameters": {"type": "object", "properties": {"city": {"type": "string"}, "unit": {"type": "string", "enum": ["c", "f"]}}, "required": ["city", "unit"]}}},
-    {"type": "function", "function": {"name": "create_calendar_event", "description": "Create a calendar event.",
-      "parameters": {"type": "object", "properties": {"title": {"type": "string"}, "date": {"type": "string", "description": "YYYY-MM-DD"}, "start": {"type": "string", "description": "HH:MM, 24-hour"}, "duration_minutes": {"type": "integer"}}, "required": ["title", "date", "start", "duration_minutes"]}}},
-    {"type": "function", "function": {"name": "convert_currency", "description": "Convert an amount between currencies (ISO 4217 codes).",
-      "parameters": {"type": "object", "properties": {"amount": {"type": "number"}, "from": {"type": "string"}, "to": {"type": "string"}}, "required": ["amount", "from", "to"]}}}
-  ],
-  "tasks": [
-    {"id": "code-1", "cat": "code", "title": "parse_duration",
-     "prompt": "Write a Python 3 function `parse_duration(s: str) -> int` that converts strings like \"1h30m\", \"45s\", \"2h\" or \"1h2m3s\" to a number of seconds. Units are h, m, s, each at most once and in that order; each number is a non-negative integer. Raise ValueError for anything else, including an empty string. Reply with one ```python code block.",
-     "grade": {"type": "python", "tests": "assert parse_duration('1h30m') == 5400\nassert parse_duration('45s') == 45\nassert parse_duration('2h') == 7200\nassert parse_duration('1h2m3s') == 3723\nassert parse_duration('0s') == 0\nfor bad in ['', '1x', 'm', '1m1h', '1h1h', '1.5h', ' 1h']:\n    try:\n        parse_duration(bad)\n    except ValueError:\n        pass\n    else:\n        raise AssertionError('accepted ' + repr(bad))\n"}},
-    {"id": "code-2", "cat": "code", "title": "merge_intervals",
-     "prompt": "Write a Python 3 function `merge_intervals(intervals)` that takes a list of (start, end) integer pairs (start <= end, any order) and returns a list of merged (start, end) tuples sorted by start. Intervals that overlap or touch (end == next start) merge. An empty list returns []. Reply with one ```python code block.",
-     "grade": {"type": "python", "tests": "assert merge_intervals([]) == []\nassert merge_intervals([(1, 3), (2, 6), (8, 10), (15, 18)]) == [(1, 6), (8, 10), (15, 18)]\nassert merge_intervals([(5, 7), (1, 2), (2, 4)]) == [(1, 4), (5, 7)]\nassert merge_intervals([(1, 10), (2, 3), (4, 5)]) == [(1, 10)]\nassert merge_intervals([(3, 3)]) == [(3, 3)]\nassert [tuple(x) for x in merge_intervals([[0, 1], [1, 2]])] == [(0, 2)]\n"}},
-    {"id": "code-3", "cat": "code", "title": "top_k_words",
-     "prompt": "Write a Python 3 function `top_k_words(text: str, k: int) -> list` that returns the k most frequent words as a list of (word, count) tuples. Words are maximal runs of the letters a-z and the apostrophe, after lowercasing; everything else separates words. Sort by count descending, then alphabetically for ties. If there are fewer than k distinct words, return them all. Reply with one ```python code block.",
-     "grade": {"type": "python", "tests": "assert top_k_words('', 3) == []\nassert top_k_words('b a B c a b', 2) == [('b', 3), ('a', 2)]\nassert top_k_words('x y z', 2) == [('x', 1), ('y', 1)]\nassert top_k_words(\"It's the dog's toy; it's the DOG'S!\", 3) == [(\"dog's\", 2), (\"it's\", 2), ('the', 2)]\nassert top_k_words('one-two two_3 two', 5) == [('two', 3), ('one', 1)]\n"}},
-    {"id": "code-4", "cat": "code", "title": "luhn_valid",
-     "prompt": "Write a Python 3 function `luhn_valid(number: str) -> bool` that checks a number with the Luhn algorithm. Spaces are ignored. Any other non-digit character, or fewer than 2 digits after removing spaces, returns False. Reply with one ```python code block.",
-     "grade": {"type": "python", "tests": "assert luhn_valid('4539 3195 0343 6467') is True\nassert luhn_valid('8273 1232 7352 0569') is False\nassert luhn_valid('059') is True\nassert luhn_valid('0') is False\nassert luhn_valid(' 0 ') is False\nassert luhn_valid('055-444-285') is False\nassert luhn_valid('79927398713') is True\nassert luhn_valid('79927398710') is False\n"}},
-
-    {"id": "tools-1", "cat": "tools", "title": "weather call",
-     "prompt": "What's the weather in Lisbon right now? Use Celsius.",
-     "grade": {"type": "tool", "name": "get_weather", "args": {"city": {"ci": "lisbon"}, "unit": "c"}}},
-    {"id": "tools-2", "cat": "tools", "title": "calendar call",
-     "prompt": "Add 'Dentist' to my calendar on 2026-12-03 at 2:30 pm for 45 minutes.",
-     "grade": {"type": "tool", "name": "create_calendar_event", "args": {"title": {"ci": "dentist"}, "date": "2026-12-03", "start": "14:30", "duration_minutes": 45}}},
-    {"id": "tools-3", "cat": "tools", "title": "relative date",
-     "prompt": "Today is Wednesday, 2026-11-25. Schedule 'Team sync' next Tuesday at 9 am for half an hour.",
-     "grade": {"type": "tool", "name": "create_calendar_event", "args": {"title": {"ci": "team sync"}, "date": "2026-12-01", "start": "09:00", "duration_minutes": 30}}},
-    {"id": "tools-4", "cat": "tools", "title": "no tool needed",
-     "prompt": "What is 17 times 23? Answer directly.",
-     "grade": {"type": "no_tool", "contains": ["391"]}},
-
-    {"id": "json-1", "cat": "json", "title": "invoice extract",
-     "prompt": "Extract the invoice fields from the text below. Reply with JSON only, no code fence, exactly these keys: vendor (string), invoice_number (string), total (number), currency (ISO code), due_date (YYYY-MM-DD).\n\nText: Northwind Supplies sent invoice NW-20931 on November 14. Amount due: $1,284.50, payable by December 15, 2026. Late payments incur a 2% fee.",
-     "grade": {"type": "json", "expect": {"vendor": {"ci": "northwind supplies"}, "invoice_number": "NW-20931", "total": 1284.5, "currency": "USD", "due_date": "2026-12-15"}, "exact_keys": true}},
-    {"id": "json-2", "cat": "json", "title": "people sorted",
-     "prompt": "From the text, list each person with their age as a JSON array of objects {\"name\": string, \"age\": integer}, sorted by age from youngest to oldest. Reply with JSON only.\n\nText: Mara turned 41 last spring. Her brother Teo is nine years younger than she is. Their cousin Ines is 29, and Ines's father Rui is twice Teo's age.",
-     "grade": {"type": "json", "expect": [{"name": "Ines", "age": 29}, {"name": "Teo", "age": 32}, {"name": "Mara", "age": 41}, {"name": "Rui", "age": 64}], "exact_keys": true}},
-    {"id": "json-3", "cat": "json", "title": "csv to typed json",
-     "prompt": "Convert this CSV to a JSON array of objects. Use numbers for qty and price, a boolean for in_stock, and keep the row order. Reply with JSON only.\n\nsku,qty,price,in_stock\nA-100,3,19.99,yes\nB-220,0,5,no\nC-031,12,0.5,yes",
-     "grade": {"type": "json", "expect": [{"sku": "A-100", "qty": 3, "price": 19.99, "in_stock": true}, {"sku": "B-220", "qty": 0, "price": 5, "in_stock": false}, {"sku": "C-031", "qty": 12, "price": 0.5, "in_stock": true}], "exact_keys": true}},
-    {"id": "json-4", "cat": "json", "title": "sentiment labels",
-     "prompt": "Label each review positive, negative or mixed. Reply with JSON only: an object mapping the review number (as a string) to its label.\n\n1. Arrived early and works perfectly.\n2. Stopped charging after two days; support never answered.\n3. Great screen, but the battery barely lasts a morning.\n4. Exactly as described, would buy again.",
-     "grade": {"type": "json", "expect": {"1": "positive", "2": "negative", "3": "mixed", "4": "positive"}, "exact_keys": true}},
-
-    {"id": "answer-1", "cat": "answer", "title": "read a spec",
-     "prompt": "Read the service notes and answer the question. End with a final line in the form 'ANSWER: <value>'.\n\nNotes: The Harbor gateway listens on 7001 for plain HTTP inside the rack. An external TLS proxy terminates HTTPS on 7443 and forwards to 7001. The admin console runs on 7090 and is never exposed; its TLS proxy is 7943. Health checks use 7001/health.\n\nQuestion: Which port does an outside client use to reach the admin console over HTTPS?",
-     "grade": {"type": "answer", "expect": "7943"}},
-    {"id": "answer-2", "cat": "answer", "title": "trip minutes",
-     "prompt": "A train leaves at 09:40 and arrives at 13:15 the same day, including one 25-minute stop. How many minutes is the train actually moving? End with a final line 'ANSWER: <number>'.",
-     "grade": {"type": "answer", "expect": 190, "tol": 0}},
-    {"id": "answer-3", "cat": "answer", "title": "weekday",
-     "prompt": "What day of the week is 1 March 2027? End with a final line 'ANSWER: <weekday>'.",
-     "grade": {"type": "answer", "expect": {"ci": "monday"}}},
-    {"id": "answer-4", "cat": "answer", "title": "ordering",
-     "prompt": "Alice is older than Bob. Carol is younger than Bob. Dave is older than Alice. Erin is younger than Carol. Who is the second oldest? End with a final line 'ANSWER: <name>'.",
-     "grade": {"type": "answer", "expect": {"ci": "alice"}}},
-
-    {"id": "format-1", "cat": "format", "title": "three short bullets",
-     "prompt": "Give exactly three bullet points (each starting with '- ') on why to keep a second backup of a Mac. Each bullet must be 12 words or fewer. No other text.",
-     "grade": {"type": "format", "bullets": 3, "max_words_per_bullet": 12, "only_bullets": true}},
-    {"id": "format-2", "cat": "format", "title": "one word",
-     "prompt": "Reply with a single lowercase word and nothing else: the capital city of Australia.",
-     "grade": {"type": "format", "exact": "canberra"}},
-    {"id": "format-3", "cat": "format", "title": "word limit and banned word",
-     "prompt": "In under 50 words, explain what a UPS (uninterruptible power supply) does for a desktop computer. Do not use the word 'very'.",
-     "grade": {"type": "format", "max_words": 49, "not_regex": "(?i)\\bvery\\b", "regex": "(?i)batter"}},
-    {"id": "format-4", "cat": "format", "title": "German, three lines",
-     "prompt": "Translate into German, keeping exactly three lines and no other text:\nThe server is running.\nThe backup finished.\nThe disk is almost full.",
-     "grade": {"type": "format", "lines": 3, "regex": "(?i)server", "all_regex": ["(?i)\\bl[aä]uft\\b", "(?i)sicherung|backup", "(?i)festplatte|platte|laufwerk|datentr[aä]ger"]}}
-  ]
+ "about": "Self-grading tasks for llm-compare.py grade. Every task has a mechanical pass/fail check, so two setups can be scored without reading the answers. Categories: code (the answer's Python runs against hidden tests in a sandbox), tools (the right tool call with the right arguments, or no call), json (JSON only, compared to the expected value), answer (a final 'ANSWER:' line), format (instruction following). Synthetic data only; nothing personal. Tasks with \"tier\": \"hard\" run only with --tier hard or all; they are meant to fail some of the time, so two setups can be ranked. Long-context prompts are generated from a seed (same text every run).",
+ "tools": [
+  {
+   "type": "function",
+   "function": {
+    "name": "get_weather",
+    "description": "Current weather for a city.",
+    "parameters": {
+     "type": "object",
+     "properties": {
+      "city": {
+       "type": "string"
+      },
+      "unit": {
+       "type": "string",
+       "enum": [
+        "c",
+        "f"
+       ]
+      }
+     },
+     "required": [
+      "city",
+      "unit"
+     ]
+    }
+   }
+  },
+  {
+   "type": "function",
+   "function": {
+    "name": "create_calendar_event",
+    "description": "Create a calendar event.",
+    "parameters": {
+     "type": "object",
+     "properties": {
+      "title": {
+       "type": "string"
+      },
+      "date": {
+       "type": "string",
+       "description": "YYYY-MM-DD"
+      },
+      "start": {
+       "type": "string",
+       "description": "HH:MM, 24-hour"
+      },
+      "duration_minutes": {
+       "type": "integer"
+      }
+     },
+     "required": [
+      "title",
+      "date",
+      "start",
+      "duration_minutes"
+     ]
+    }
+   }
+  },
+  {
+   "type": "function",
+   "function": {
+    "name": "convert_currency",
+    "description": "Convert an amount between currencies (ISO 4217 codes).",
+    "parameters": {
+     "type": "object",
+     "properties": {
+      "amount": {
+       "type": "number"
+      },
+      "from": {
+       "type": "string"
+      },
+      "to": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "amount",
+      "from",
+      "to"
+     ]
+    }
+   }
+  }
+ ],
+ "tasks": [
+  {
+   "id": "code-1",
+   "cat": "code",
+   "title": "parse_duration",
+   "prompt": "Write a Python 3 function `parse_duration(s: str) -> int` that converts strings like \"1h30m\", \"45s\", \"2h\" or \"1h2m3s\" to a number of seconds. Units are h, m, s, each at most once and in that order; each number is a non-negative integer. Raise ValueError for anything else, including an empty string. Reply with one ```python code block.",
+   "grade": {
+    "type": "python",
+    "tests": "assert parse_duration('1h30m') == 5400\nassert parse_duration('45s') == 45\nassert parse_duration('2h') == 7200\nassert parse_duration('1h2m3s') == 3723\nassert parse_duration('0s') == 0\nfor bad in ['', '1x', 'm', '1m1h', '1h1h', '1.5h', ' 1h']:\n    try:\n        parse_duration(bad)\n    except ValueError:\n        pass\n    else:\n        raise AssertionError('accepted ' + repr(bad))\n"
+   }
+  },
+  {
+   "id": "code-2",
+   "cat": "code",
+   "title": "merge_intervals",
+   "prompt": "Write a Python 3 function `merge_intervals(intervals)` that takes a list of (start, end) integer pairs (start <= end, any order) and returns a list of merged (start, end) tuples sorted by start. Intervals that overlap or touch (end == next start) merge. An empty list returns []. Reply with one ```python code block.",
+   "grade": {
+    "type": "python",
+    "tests": "assert merge_intervals([]) == []\nassert merge_intervals([(1, 3), (2, 6), (8, 10), (15, 18)]) == [(1, 6), (8, 10), (15, 18)]\nassert merge_intervals([(5, 7), (1, 2), (2, 4)]) == [(1, 4), (5, 7)]\nassert merge_intervals([(1, 10), (2, 3), (4, 5)]) == [(1, 10)]\nassert merge_intervals([(3, 3)]) == [(3, 3)]\nassert [tuple(x) for x in merge_intervals([[0, 1], [1, 2]])] == [(0, 2)]\n"
+   }
+  },
+  {
+   "id": "code-3",
+   "cat": "code",
+   "title": "top_k_words",
+   "prompt": "Write a Python 3 function `top_k_words(text: str, k: int) -> list` that returns the k most frequent words as a list of (word, count) tuples. Words are maximal runs of the letters a-z and the apostrophe, after lowercasing; everything else separates words. Sort by count descending, then alphabetically for ties. If there are fewer than k distinct words, return them all. Reply with one ```python code block.",
+   "grade": {
+    "type": "python",
+    "tests": "assert top_k_words('', 3) == []\nassert top_k_words('b a B c a b', 2) == [('b', 3), ('a', 2)]\nassert top_k_words('x y z', 2) == [('x', 1), ('y', 1)]\nassert top_k_words(\"It's the dog's toy; it's the DOG'S!\", 3) == [(\"dog's\", 2), (\"it's\", 2), ('the', 2)]\nassert top_k_words('one-two two_3 two', 5) == [('two', 3), ('one', 1)]\n"
+   }
+  },
+  {
+   "id": "code-4",
+   "cat": "code",
+   "title": "luhn_valid",
+   "prompt": "Write a Python 3 function `luhn_valid(number: str) -> bool` that checks a number with the Luhn algorithm. Spaces are ignored. Any other non-digit character, or fewer than 2 digits after removing spaces, returns False. Reply with one ```python code block.",
+   "grade": {
+    "type": "python",
+    "tests": "assert luhn_valid('4539 3195 0343 6467') is True\nassert luhn_valid('8273 1232 7352 0569') is False\nassert luhn_valid('059') is True\nassert luhn_valid('0') is False\nassert luhn_valid(' 0 ') is False\nassert luhn_valid('055-444-285') is False\nassert luhn_valid('79927398713') is True\nassert luhn_valid('79927398710') is False\n"
+   }
+  },
+  {
+   "id": "tools-1",
+   "cat": "tools",
+   "title": "weather call",
+   "prompt": "What's the weather in Lisbon right now? Use Celsius.",
+   "grade": {
+    "type": "tool",
+    "name": "get_weather",
+    "args": {
+     "city": {
+      "ci": "lisbon"
+     },
+     "unit": "c"
+    }
+   }
+  },
+  {
+   "id": "tools-2",
+   "cat": "tools",
+   "title": "calendar call",
+   "prompt": "Add 'Dentist' to my calendar on 2026-12-03 at 2:30 pm for 45 minutes.",
+   "grade": {
+    "type": "tool",
+    "name": "create_calendar_event",
+    "args": {
+     "title": {
+      "ci": "dentist"
+     },
+     "date": "2026-12-03",
+     "start": "14:30",
+     "duration_minutes": 45
+    }
+   }
+  },
+  {
+   "id": "tools-3",
+   "cat": "tools",
+   "title": "relative date",
+   "prompt": "Today is Wednesday, 2026-11-25. Schedule 'Team sync' next Tuesday at 9 am for half an hour.",
+   "grade": {
+    "type": "tool",
+    "name": "create_calendar_event",
+    "args": {
+     "title": {
+      "ci": "team sync"
+     },
+     "date": "2026-12-01",
+     "start": "09:00",
+     "duration_minutes": 30
+    }
+   }
+  },
+  {
+   "id": "tools-4",
+   "cat": "tools",
+   "title": "no tool needed",
+   "prompt": "What is 17 times 23? Answer directly.",
+   "grade": {
+    "type": "no_tool",
+    "contains": [
+     "391"
+    ]
+   }
+  },
+  {
+   "id": "json-1",
+   "cat": "json",
+   "title": "invoice extract",
+   "prompt": "Extract the invoice fields from the text below. Reply with JSON only, no code fence, exactly these keys: vendor (string), invoice_number (string), total (number), currency (ISO code), due_date (YYYY-MM-DD).\n\nText: Northwind Supplies sent invoice NW-20931 on November 14. Amount due: $1,284.50, payable by December 15, 2026. Late payments incur a 2% fee.",
+   "grade": {
+    "type": "json",
+    "expect": {
+     "vendor": {
+      "ci": "northwind supplies"
+     },
+     "invoice_number": "NW-20931",
+     "total": 1284.5,
+     "currency": "USD",
+     "due_date": "2026-12-15"
+    },
+    "exact_keys": true
+   }
+  },
+  {
+   "id": "json-2",
+   "cat": "json",
+   "title": "people sorted",
+   "prompt": "From the text, list each person with their age as a JSON array of objects {\"name\": string, \"age\": integer}, sorted by age from youngest to oldest. Reply with JSON only.\n\nText: Mara turned 41 last spring. Her brother Teo is nine years younger than she is. Their cousin Ines is 29, and Ines's father Rui is twice Teo's age.",
+   "grade": {
+    "type": "json",
+    "expect": [
+     {
+      "name": "Ines",
+      "age": 29
+     },
+     {
+      "name": "Teo",
+      "age": 32
+     },
+     {
+      "name": "Mara",
+      "age": 41
+     },
+     {
+      "name": "Rui",
+      "age": 64
+     }
+    ],
+    "exact_keys": true
+   }
+  },
+  {
+   "id": "json-3",
+   "cat": "json",
+   "title": "csv to typed json",
+   "prompt": "Convert this CSV to a JSON array of objects. Use numbers for qty and price, a boolean for in_stock, and keep the row order. Reply with JSON only.\n\nsku,qty,price,in_stock\nA-100,3,19.99,yes\nB-220,0,5,no\nC-031,12,0.5,yes",
+   "grade": {
+    "type": "json",
+    "expect": [
+     {
+      "sku": "A-100",
+      "qty": 3,
+      "price": 19.99,
+      "in_stock": true
+     },
+     {
+      "sku": "B-220",
+      "qty": 0,
+      "price": 5,
+      "in_stock": false
+     },
+     {
+      "sku": "C-031",
+      "qty": 12,
+      "price": 0.5,
+      "in_stock": true
+     }
+    ],
+    "exact_keys": true
+   }
+  },
+  {
+   "id": "json-4",
+   "cat": "json",
+   "title": "sentiment labels",
+   "prompt": "Label each review positive, negative or mixed. Reply with JSON only: an object mapping the review number (as a string) to its label.\n\n1. Arrived early and works perfectly.\n2. Stopped charging after two days; support never answered.\n3. Great screen, but the battery barely lasts a morning.\n4. Exactly as described, would buy again.",
+   "grade": {
+    "type": "json",
+    "expect": {
+     "1": "positive",
+     "2": "negative",
+     "3": "mixed",
+     "4": "positive"
+    },
+    "exact_keys": true
+   }
+  },
+  {
+   "id": "answer-1",
+   "cat": "answer",
+   "title": "read a spec",
+   "prompt": "Read the service notes and answer the question. End with a final line in the form 'ANSWER: <value>'.\n\nNotes: The Harbor gateway listens on 7001 for plain HTTP inside the rack. An external TLS proxy terminates HTTPS on 7443 and forwards to 7001. The admin console runs on 7090 and is never exposed; its TLS proxy is 7943. Health checks use 7001/health.\n\nQuestion: Which port does an outside client use to reach the admin console over HTTPS?",
+   "grade": {
+    "type": "answer",
+    "expect": "7943"
+   }
+  },
+  {
+   "id": "answer-2",
+   "cat": "answer",
+   "title": "trip minutes",
+   "prompt": "A train leaves at 09:40 and arrives at 13:15 the same day, including one 25-minute stop. How many minutes is the train actually moving? End with a final line 'ANSWER: <number>'.",
+   "grade": {
+    "type": "answer",
+    "expect": 190,
+    "tol": 0
+   }
+  },
+  {
+   "id": "answer-3",
+   "cat": "answer",
+   "title": "weekday",
+   "prompt": "What day of the week is 1 March 2027? End with a final line 'ANSWER: <weekday>'.",
+   "grade": {
+    "type": "answer",
+    "expect": {
+     "ci": "monday"
+    }
+   }
+  },
+  {
+   "id": "answer-4",
+   "cat": "answer",
+   "title": "ordering",
+   "prompt": "Alice is older than Bob. Carol is younger than Bob. Dave is older than Alice. Erin is younger than Carol. Who is the second oldest? End with a final line 'ANSWER: <name>'.",
+   "grade": {
+    "type": "answer",
+    "expect": {
+     "ci": "alice"
+    }
+   }
+  },
+  {
+   "id": "format-1",
+   "cat": "format",
+   "title": "three short bullets",
+   "prompt": "Give exactly three bullet points (each starting with '- ') on why to keep a second backup of a Mac. Each bullet must be 12 words or fewer. No other text.",
+   "grade": {
+    "type": "format",
+    "bullets": 3,
+    "max_words_per_bullet": 12,
+    "only_bullets": true
+   }
+  },
+  {
+   "id": "format-2",
+   "cat": "format",
+   "title": "one word",
+   "prompt": "Reply with a single lowercase word and nothing else: the capital city of Australia.",
+   "grade": {
+    "type": "format",
+    "exact": "canberra"
+   }
+  },
+  {
+   "id": "format-3",
+   "cat": "format",
+   "title": "word limit and banned word",
+   "prompt": "In under 50 words, explain what a UPS (uninterruptible power supply) does for a desktop computer. Do not use the word 'very'.",
+   "grade": {
+    "type": "format",
+    "max_words": 49,
+    "not_regex": "(?i)\\bvery\\b",
+    "regex": "(?i)batter"
+   }
+  },
+  {
+   "id": "format-4",
+   "cat": "format",
+   "title": "German, three lines",
+   "prompt": "Translate into German, keeping exactly three lines and no other text:\nThe server is running.\nThe backup finished.\nThe disk is almost full.",
+   "grade": {
+    "type": "format",
+    "lines": 3,
+    "regex": "(?i)server",
+    "all_regex": [
+     "(?i)\\bl[aä]uft\\b",
+     "(?i)sicherung|backup",
+     "(?i)festplatte|platte|laufwerk|datentr[aä]ger"
+    ]
+   }
+  },
+  {
+   "id": "hard-ctx-28k",
+   "tier": "hard",
+   "cat": "hard-context",
+   "title": "two-hop lookup, ~28K tokens",
+   "generate": {
+    "kind": "haystack",
+    "approx_tokens": 28000,
+    "seed": 11,
+    "depths": [
+     0.35,
+     0.8
+    ]
+   },
+   "grade": {
+    "type": "answer",
+    "expect": "from_generator"
+   }
+  },
+  {
+   "id": "hard-ctx-100k",
+   "tier": "hard",
+   "cat": "hard-context",
+   "title": "two-hop + retired code, ~100K",
+   "generate": {
+    "kind": "haystack",
+    "approx_tokens": 100000,
+    "seed": 23,
+    "depths": [
+     0.15,
+     0.62,
+     0.9
+    ],
+    "decoy": true
+   },
+   "grade": {
+    "type": "answer",
+    "expect": "from_generator"
+   }
+  },
+  {
+   "id": "hard-tools-1",
+   "tier": "hard",
+   "cat": "hard-tools",
+   "title": "conditional chain (cold)",
+   "prompt": "Today is Wednesday, 2026-11-25. Check the weather in Oslo in Celsius. If it is below 0 °C, add 'Pack winter gear' to my calendar tomorrow at 08:00 for 15 minutes; otherwise don't add anything. Then tell me what you did.",
+   "grade": {
+    "type": "tool_chain",
+    "steps": [
+     {
+      "name": "get_weather",
+      "args": {
+       "city": {
+        "ci": "oslo"
+       },
+       "unit": "c"
+      },
+      "result": {
+       "city": "Oslo",
+       "temp_c": -4,
+       "conditions": "light snow"
+      }
+     },
+     {
+      "name": "create_calendar_event",
+      "args": {
+       "title": {
+        "ci": "pack winter gear"
+       },
+       "date": "2026-11-26",
+       "start": "08:00",
+       "duration_minutes": 15
+      },
+      "result": {
+       "ok": true,
+       "id": "evt_301"
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": "hard-tools-2",
+   "tier": "hard",
+   "cat": "hard-tools",
+   "title": "conditional chain (warm)",
+   "prompt": "Today is Wednesday, 2026-11-25. Check the weather in Lisbon in Celsius. If it is below 0 °C, add 'Pack winter gear' to my calendar tomorrow at 08:00 for 15 minutes; otherwise don't add anything. Then tell me what you did.",
+   "grade": {
+    "type": "tool_chain",
+    "steps": [
+     {
+      "name": "get_weather",
+      "args": {
+       "city": {
+        "ci": "lisbon"
+       },
+       "unit": "c"
+      },
+      "result": {
+       "city": "Lisbon",
+       "temp_c": 16,
+       "conditions": "sunny"
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": "hard-tools-3",
+   "tier": "hard",
+   "cat": "hard-tools",
+   "title": "two conversions, then a sum",
+   "prompt": "Use the currency tool to convert 250 EUR to USD and 180 GBP to USD, then give the combined total in USD. End with a final line 'ANSWER: <total>'.",
+   "grade": {
+    "type": "tool_chain",
+    "steps": [
+     {
+      "name": "convert_currency",
+      "args": {
+       "amount": 250,
+       "from": "EUR",
+       "to": "USD"
+      },
+      "result": {
+       "amount": 271.5,
+       "currency": "USD"
+      }
+     },
+     {
+      "name": "convert_currency",
+      "args": {
+       "amount": 180,
+       "from": "GBP",
+       "to": "USD"
+      },
+      "result": {
+       "amount": 227.7,
+       "currency": "USD"
+      }
+     }
+    ],
+    "final": {
+     "type": "answer",
+     "expect": 499.2,
+     "tol": 0.011
+    }
+   }
+  },
+  {
+   "id": "hard-code-1",
+   "tier": "hard",
+   "cat": "hard-code",
+   "title": "LRU cache with expiry",
+   "prompt": "Write a Python 3 class `TTLCache(capacity: int, ttl: float, clock=time.monotonic)` with methods `get(key, default=None)`, `put(key, value)` and `__len__()`. An entry expires when clock() - (time it was last put) >= ttl; an expired entry behaves as missing. `get` on a live entry makes it the most recently used but does not extend its life. `put` inserts or updates (resetting its put time) and makes the key most recently used. When putting a new key while the cache holds `capacity` entries, first drop every expired entry; if it is still full, evict the least recently used entry. `len()` counts live entries only. Use the `clock` argument for all time readings. Reply with one ```python code block.",
+   "grade": {
+    "type": "python",
+    "tests": "t = [0]\nc = TTLCache(2, 10, clock=lambda: t[0])\nc.put('a', 1); c.put('b', 2)\nassert c.get('a') == 1\nc.put('c', 3)\nassert c.get('b') is None and c.get('a') == 1 and c.get('c') == 3\nt[0] = 10\nassert c.get('a') is None\nassert len(c) == 0\nc.put('d', 4); t[0] = 15; c.put('e', 5); t[0] = 19.9\nassert c.get('d') == 4\nt[0] = 20\nassert c.get('d') is None and c.get('e') == 5\nassert c.get('zz', 'dflt') == 'dflt'\nc2 = TTLCache(1, 5, clock=lambda: t[0])\nt[0] = 100; c2.put('x', 1); t[0] = 104; c2.put('x', 2); t[0] = 108\nassert c2.get('x') == 2 and len(c2) == 1\nt[0] = 109\nassert c2.get('x') is None\nc3 = TTLCache(2, 100, clock=lambda: t[0])\nc3.put('p', 1); c3.put('q', 2); c3.put('p', 9); c3.put('r', 3)\nassert c3.get('q') is None and c3.get('p') == 9 and c3.get('r') == 3\n"
+   }
+  },
+  {
+   "id": "hard-code-2",
+   "tier": "hard",
+   "cat": "hard-code",
+   "title": "CSV line parser, no csv module",
+   "prompt": "Without importing the csv module, write a Python 3 function `parse_csv_line(line: str) -> list` that splits one CSV line into fields. Fields are separated by commas. A field may be wrapped in double quotes; inside a quoted field commas are literal and two double quotes (\"\") stand for one double quote. Whitespace is kept as is. An empty line gives ['']. Raise ValueError for an unterminated quoted field, a double quote inside an unquoted field, or any character after a closing quote other than a comma. Reply with one ```python code block.",
+   "grade": {
+    "type": "python",
+    "forbid_regex": "\\bimport\\s+csv\\b|\\bfrom\\s+csv\\b",
+    "tests": "assert parse_csv_line('a,b,c') == ['a', 'b', 'c']\nassert parse_csv_line('') == ['']\nassert parse_csv_line(',,') == ['', '', '']\nassert parse_csv_line('\"a,b\",c') == ['a,b', 'c']\nassert parse_csv_line('\"he said \"\"hi\"\"\",x') == ['he said \"hi\"', 'x']\nassert parse_csv_line('\"\",x') == ['', 'x']\nassert parse_csv_line(' a , b ') == [' a ', ' b ']\nassert parse_csv_line('x,\"\"') == ['x', '']\nfor bad in ['\"abc', 'ab\"c', '\"a\"b,c', 'a,\"b']:\n    try:\n        parse_csv_line(bad)\n    except ValueError:\n        pass\n    else:\n        raise AssertionError('accepted ' + repr(bad))\n"
+   }
+  },
+  {
+   "id": "hard-code-3",
+   "tier": "hard",
+   "cat": "hard-code",
+   "title": "elapsed hours across DST",
+   "prompt": "Write a Python 3 function `hours_between(start: str, end: str, tz: str) -> float` where start and end are naive ISO 8601 local times (like '2026-03-08T00:00') in the IANA time zone tz. Return the real elapsed time from start to end in hours (negative if end is earlier), accounting for daylight-saving changes. Use only the standard library. Reply with one ```python code block.",
+   "grade": {
+    "type": "python",
+    "tests": "assert abs(hours_between('2026-03-08T00:00', '2026-03-08T04:00', 'America/New_York') - 3) < 1e-9\nassert abs(hours_between('2026-11-01T00:00', '2026-11-01T04:00', 'America/New_York') - 5) < 1e-9\nassert abs(hours_between('2026-07-01T00:00', '2026-07-02T00:00', 'America/New_York') - 24) < 1e-9\nassert abs(hours_between('2026-03-29T00:00', '2026-03-29T03:00', 'Europe/London') - 2) < 1e-9\nassert abs(hours_between('2026-10-25T00:00', '2026-10-25T03:00', 'Europe/London') - 4) < 1e-9\nassert abs(hours_between('2026-03-08T04:00', '2026-03-08T00:00', 'America/New_York') + 3) < 1e-9\n"
+   }
+  },
+  {
+   "id": "hard-reason-1",
+   "tier": "hard",
+   "cat": "hard-reason",
+   "title": "big multiplication",
+   "prompt": "Compute 987654321 × 123456789 exactly. End with a final line 'ANSWER: <digits>'.",
+   "grade": {
+    "type": "answer",
+    "expect": "121932631112635269",
+    "digits": true
+   }
+  },
+  {
+   "id": "hard-reason-2",
+   "tier": "hard",
+   "cat": "hard-reason",
+   "title": "date 1000 days later",
+   "prompt": "What calendar date is 1000 days after 25 November 2026? End with a final line 'ANSWER: <YYYY-MM-DD>'.",
+   "grade": {
+    "type": "answer",
+    "expect": "2029-08-21"
+   }
+  },
+  {
+   "id": "hard-reason-3",
+   "tier": "hard",
+   "cat": "hard-reason",
+   "title": "seating puzzle",
+   "prompt": "Ana, Ben, Cleo, Dev and Eli sit in a row in seats 1 to 5 (seat 1 on the left). Ana sits next to Ben. Cleo is not at either end. Dev sits somewhere to the right of Eli. Ben is not in the middle seat. Cleo does not sit next to Dev. Eli is in seat 1 or seat 2. Who sits in seat 3? End with a final line 'ANSWER: <name>'.",
+   "grade": {
+    "type": "answer",
+    "expect": {
+     "ci": "ana"
+    }
+   }
+  },
+  {
+   "id": "hard-reason-4",
+   "tier": "hard",
+   "cat": "hard-reason",
+   "title": "letter count",
+   "prompt": "How many times does the letter 'r' appear in the phrase 'strawberry raspberry refrigerator'? End with a final line 'ANSWER: <number>'.",
+   "grade": {
+    "type": "answer",
+    "expect": 10,
+    "tol": 0
+   }
+  }
+ ]
 }

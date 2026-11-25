@@ -17,6 +17,7 @@ judged blind. Python 3 stdlib only.
   ~/bin/llm-compare.py run --label nomtp --url http://127.0.0.1:11234/v1 --only 2,3,7 --extra '{"enable_mtp": false}'
   ~/bin/llm-compare.py grade --label mlx-26.11.2 --url http://127.0.0.1:11234/v1 --runs 3
   ~/bin/llm-compare.py grade --label gemma --url http://127.0.0.1:11235/v1 --model gemma-4-26b-a4b-it-qat
+  ~/bin/llm-compare.py grade --label mlx-26.11.2-hard --url http://127.0.0.1:11234/v1 --tier hard --runs 3
   ~/bin/llm-compare.py grade-diff mlx-26.11.2 splash-1.7.1
 
 Graded code runs the model's Python in a child process: on macOS inside sandbox-exec (no network,
@@ -253,10 +254,10 @@ def match(expect, got, tol=1e-6):
         return expect is got
     if isinstance(expect, (int, float)):
         if isinstance(got, str):
-            try:
-                got = float(got.replace(",", ""))
-            except ValueError:
+            m = re.search(r"-?\d[\d,]*(?:\.\d+)?", got)
+            if not m:
                 return False
+            got = float(m.group(0).replace(",", ""))
         return isinstance(got, (int, float)) and abs(got - expect) <= tol
     if isinstance(expect, str):
         return isinstance(got, str) and got.strip() == expect
@@ -361,7 +362,10 @@ def grade_one(task, msg, no_code):
         blocks = re.findall(r"```(?:python|py)?\s*\n(.*?)```", text, re.S)
         if not blocks:
             return "fail", "no code block"
-        ok, why = run_python(max(blocks, key=len), g["tests"])
+        code = max(blocks, key=len)
+        if g.get("forbid_regex") and re.search(g["forbid_regex"], code):
+            return "fail", "used a forbidden import or call"
+        ok, why = run_python(code, g["tests"])
         return ("pass" if ok else "fail"), why
     if t == "tool":
         calls = tool_calls(msg)
@@ -393,6 +397,8 @@ def grade_one(task, msg, no_code):
         if not lines:
             return "fail", "no 'ANSWER:' line"
         got = lines[-1].rstrip(".")
+        if g.get("digits"):
+            got = re.sub(r"[^\d]", "", got)
         ok = match(g["expect"], got, g.get("tol", 1e-6))
         return ("pass" if ok else "fail", f"ANSWER: {got[:60]}")
     if t == "format":
@@ -424,6 +430,121 @@ def grade_one(task, msg, no_code):
     return "fail", f"unknown grade type {t}"
 
 
+# ---------------------------------------------------------------- hard tier: generated prompts and tool chains
+
+FIRST = ("Ada Bram Cato Dina Emil Fara Gus Hana Ivo Juna Kai Lena Milo Nora Otto Pia Quin Rosa Sven Tara "
+         "Uli Vera Wim Xena Yara Zeno Alba Bodo Cira Dario Elin Femi Gita Hugo Iris Jori Kira Luca Maja Nils").split()
+LAST = ("Lind Moreau Okafor Sato Brandt Costa Novak Haas Rossi Vidal Kerr Holm Petrov Dahl Ferreira Lucas Weber "
+        "Marsh Quist Romero Silva Toft Ueda Varga Wolfe Young Zamora Ibsen Jansen Kowal").split()
+CITIES = ("Oslo Bergen Lyon Porto Graz Ghent Turku Cork Brno Pisa Malmo Leeds Basel Split Riga Tartu Lille Bonn "
+          "Gdansk Aarhus Bilbao Seville Utrecht Krakow Vilnius Tallinn Zagreb Bremen Toulouse Coimbra Salzburg "
+          "Lugano Galway Bruges Uppsala Trondheim Nantes Verona Leipzig Valencia").split()
+
+
+def gen_haystack(spec):
+    """Deterministic operations log of about approx_tokens tokens with a two-hop fact chain buried at the
+    given depths. Returns (prompt, expected_answer)."""
+    rnd = random.Random(spec["seed"])
+    people = [f"{f} {l}" for f in FIRST for l in LAST]
+    rnd.shuffle(people)
+    target_city = rnd.choice(CITIES)
+    target, people = people[0], people[1:]
+    code = f"{rnd.randint(1000, 9999)}"
+    old = f"{rnd.randint(1000, 9999)}"
+    while old == code:
+        old = f"{rnd.randint(1000, 9999)}"
+    plant = [f"Staffing note: the {target_city} office is managed by {target}.",
+             f"Facilities: {target}'s locker code is {code}."]
+    if spec.get("decoy"):
+        plant.insert(1, f"Facilities: locker code {old}, formerly {target}'s, was retired in March and must not be used.")
+    other_cities = [c for c in CITIES if c != target_city]
+    filler, want = [], spec["approx_tokens"] * 4          # ~4 characters per token
+    size = 0
+    while size < want:
+        k = rnd.random()
+        who = rnd.choice(people)
+        if k < 0.3:
+            line = f"Staffing note: the {rnd.choice(other_cities)} office is managed by {who}."
+        elif k < 0.6:
+            line = f"Facilities: {who}'s locker code is {rnd.randint(1000, 9999)}."
+        elif k < 0.8:
+            line = f"Quarterly review for {rnd.choice(CITIES)} recorded {rnd.randint(3, 90)} open tickets and {rnd.randint(0, 9)} escalations."
+        else:
+            line = f"Maintenance: badge reader {rnd.randint(10, 99)} at the {rnd.choice(CITIES)} office was serviced on day {rnd.randint(1, 28)}."
+        filler.append(line)
+        size += len(line) + 1
+    for frac, line in zip(spec["depths"], plant):
+        filler.insert(int(len(filler) * frac), line)
+    q = (f"Question: what is the current locker code of the person who manages the {target_city} office? "
+         "End with a final line 'ANSWER: <code>'.")
+    prompt = ("Below is an operations log, one entry per line. Read it, then answer the question after it.\n\n"
+              + "\n".join(filler) + "\n\n" + q)
+    return prompt, code
+
+
+def prepare(task):
+    """Fill in generated prompts; returns a task dict ready to send."""
+    if "generate" not in task:
+        return task
+    t = dict(task)
+    prompt, answer = gen_haystack(task["generate"])
+    t["prompt"] = prompt
+    t["grade"] = dict(task["grade"], expect=answer)
+    return t
+
+
+def raw_calls(msg):
+    """[(id, name, args)] from a reply, with ids made up for text-style calls."""
+    out = []
+    for i, tc in enumerate(msg.get("tool_calls") or []):
+        fn = tc.get("function") or {}
+        args = fn.get("arguments") or {}
+        if isinstance(args, str):
+            try:
+                args = json.loads(args) if args.strip() else {}
+            except json.JSONDecodeError:
+                args = {"__unparsed__": args}
+        out.append((tc.get("id") or f"call_{i}", fn.get("name"), args))
+    if not out:
+        out = [(f"call_{i}", n, a) for i, (n, a) in enumerate(tool_calls(msg))]
+    return out
+
+
+def run_chain(url, base, task, timeout, no_code):
+    """Multi-turn tool use against scripted tool results. Returns (verdict, why, seconds, tokens, finish, last_msg)."""
+    g = task["grade"]
+    steps = [dict(st, done=False) for st in g["steps"]]
+    messages = list(base["messages"])
+    secs, toks, n = 0.0, 0, 0
+    for turn in range(len(steps) + 3):
+        msg, finish, tok, dt = chat(url, dict(base, messages=messages), timeout)
+        secs += dt
+        toks += tok or 0
+        calls = raw_calls(msg)
+        if not calls:
+            left = [st["name"] for st in steps if not st["done"]]
+            if left:
+                return "fail", f"stopped before calling {left[0]}", secs, toks, finish, msg
+            if g.get("final"):
+                v, why = grade_one({"grade": g["final"]}, msg, no_code)
+                return v, why, secs, toks, finish, msg
+            return "pass", f"{len(steps)} call(s) ok", secs, toks, finish, msg
+        assistant = {"role": "assistant", "content": "", "tool_calls": []}
+        results = []
+        for cid, name, args in calls:
+            st = next((st for st in steps if not st["done"] and st["name"] == name and
+                       all(k in args and match(v, args[k]) for k, v in st["args"].items())), None)
+            if st is None:
+                return "fail", f"unexpected call {name} {json.dumps(args)[:80]}", secs, toks, finish, msg
+            st["done"] = True
+            n += 1
+            assistant["tool_calls"].append({"id": cid, "type": "function",
+                                            "function": {"name": name, "arguments": json.dumps(args)}})
+            results.append({"role": "tool", "tool_call_id": cid, "content": json.dumps(st["result"])})
+        messages += [assistant] + results
+    return "fail", "too many turns", secs, toks, "turns", msg
+
+
 def load_tasks(path):
     try:
         d = json.load(open(os.path.expanduser(path), encoding="utf-8"))
@@ -436,13 +557,15 @@ def load_tasks(path):
 
 def cmd_grade(a):
     tools, tasks = load_tasks(a.tasks)
+    if not a.only:
+        tasks = [t for t in tasks if a.tier == "all" or t.get("tier", "base") == a.tier]
     try:
         extra = json.loads(a.extra) if a.extra else {}
     except json.JSONDecodeError as e:
         sys.exit(f"--extra is not valid JSON: {e}")
     if a.only:
         keep = {x.strip() for x in a.only.split(",")}
-        tasks = [t for t in tasks if t["id"] in keep or t["cat"] in keep]
+        tasks = [t for t in tasks if t["id"] in keep or t["cat"] in keep or t.get("tier", "base") in keep]
         if not tasks:
             sys.exit(f"--only {a.only}: no task id or category matched")
     os.makedirs(OUT_DIR, exist_ok=True)
@@ -453,16 +576,20 @@ def cmd_grade(a):
           f"{'skipped' if a.no_code else sandbox}; saving to {out_path}")
     results = []
     for t in tasks:
+        t = prepare(t)
         rec = {"id": t["id"], "cat": t["cat"], "title": t["title"], "runs": []}
         for n in range(a.runs):
             body = {"model": a.model, "max_tokens": a.max_tokens, "temperature": 1.0, "top_p": 0.95, "top_k": 20,
                     "chat_template_kwargs": {"enable_thinking": True, "reasoning_effort": a.effort},
                     "messages": [{"role": "user", "content": t["prompt"]}], **extra}
-            if t["cat"] == "tools":
+            if t["cat"] in ("tools", "hard-tools"):
                 body["tools"] = tools
             try:
-                msg, finish, tok, dt = chat(url, body, a.timeout)
-                verdict, why = grade_one(t, msg, a.no_code)
+                if t["grade"]["type"] == "tool_chain":
+                    verdict, why, dt, tok, finish, msg = run_chain(url, body, t, a.timeout, a.no_code)
+                else:
+                    msg, finish, tok, dt = chat(url, body, a.timeout)
+                    verdict, why = grade_one(t, msg, a.no_code)
             except urllib.error.HTTPError as e:
                 msg, finish, tok, dt = {}, "error", None, 0.0
                 verdict, why = "fail", f"HTTP {e.code} {e.read().decode('utf-8', 'ignore')[:120]}"
@@ -474,7 +601,7 @@ def cmd_grade(a):
                                 "finish": finish, "answer": visible(msg)[:4000],
                                 "tool_calls": [[nm, ag] for nm, ag in tool_calls(msg)]})
             mark = {"pass": "PASS", "fail": "FAIL", "skip": "skip"}[verdict]
-            print(f"  {t['id']:10} {t['title'][:26]:26} {mark}  {dt:6.1f} s  {tok or 0:6} tok  {why}")
+            print(f"  {t['id']:13} {t['title'][:26]:26} {mark}  {dt:6.1f} s  {tok or 0:6} tok  {why}")
         results.append(rec)
         with open(out_path, "w") as f:
             json.dump({"label": a.label, "url": a.url, "model": a.model, "effort": a.effort, "runs": a.runs,
@@ -517,7 +644,7 @@ def load_graded(lab):
 def cmd_grade_diff(a):
     ra, rb = load_graded(a.a), load_graded(a.b)
     by = {r["id"]: r for r in rb["results"]}
-    print(f"{'task':10} {'':26} {ra['label'][:14]:>14} {rb['label'][:14]:>14}")
+    print(f"{'task':13} {'':26} {ra['label'][:14]:>14} {rb['label'][:14]:>14}")
     for r in ra["results"]:
         o = by.get(r["id"])
         if not o:
@@ -527,10 +654,10 @@ def cmd_grade_diff(a):
             return sum(u["verdict"] == "pass" for u in runs), len(runs)
         pa, pb = frac(r), frac(o)
         if not pa[1] or not pb[1]:
-            print(f"{r['id']:10} {r['title'][:26]:26} {'skipped on one side':>29}")
+            print(f"{r['id']:13} {r['title'][:26]:26} {'skipped on one side':>29}")
             continue
         flag = "" if pa[0] * max(pb[1], 1) == pb[0] * max(pa[1], 1) else ("  <- " + (ra["label"] if pa[0] / max(pa[1], 1) > pb[0] / max(pb[1], 1) else rb["label"]) + " better")
-        print(f"{r['id']:10} {r['title'][:26]:26} {pa[0]:>10}/{pa[1]:<3} {pb[0]:>10}/{pb[1]:<3}{flag}")
+        print(f"{r['id']:13} {r['title'][:26]:26} {pa[0]:>10}/{pa[1]:<3} {pb[0]:>10}/{pb[1]:<3}{flag}")
     ids = set(by) & {r["id"] for r in ra["results"]}
     print_summary(ra["label"], [r for r in ra["results"] if r["id"] in ids])
     print_summary(rb["label"], [r for r in rb["results"] if r["id"] in ids])
@@ -565,7 +692,9 @@ def main():
     g.add_argument("--max-tokens", type=int, default=8192)
     g.add_argument("--timeout", type=int, default=900, help="seconds per request")
     g.add_argument("--runs", type=int, default=1, help="repeat each task N times (temperature 1.0 is noisy)")
-    g.add_argument("--only", default="", help="task ids or categories, e.g. code or tools-2,json")
+    g.add_argument("--tier", default="base", choices=["base", "hard", "all"],
+                   help="base: 20 quick tasks (default); hard: 12 tasks meant to fail sometimes, incl. ~28K and ~100K-token prompts")
+    g.add_argument("--only", default="", help="task ids, categories or a tier, e.g. code or tools-2,json (any tier)")
     g.add_argument("--no-code", action="store_true", help="skip the code tasks (no model code is run)")
     g.add_argument("--extra", default="", help="JSON merged into each request")
     g.set_defaults(func=cmd_grade)

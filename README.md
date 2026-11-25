@@ -147,7 +147,7 @@ Token caps (v1.3.2): Auto builds its own request to the model server, so persona
 | Saved runs (v2; each run is compared with the last one of the same model and label) | `python3 ~/bin/llm-bench.py --history` |
 | Benchmark under combined load | add `--load-model gemma-4-26b-a4b-it-qat --load-image ~/Pictures/test.png` (each model is sent to its own server; pass `--url` / `--load-url` when two servers list the same ID) |
 | Blind answer-quality comparison of two setups | `llm-compare.py run --label A --url …` per setup, then `llm-compare.py report A B` and open the page (prompts in `m5/tests/quality-prompts.md`; results stay in `~/llm-compare`) |
-| Scored quality check, no judging (20 tasks: code, tools, JSON, answers, format) | `llm-compare.py grade --label A --url http://127.0.0.1:11234/v1 --runs 3` per setup, then `llm-compare.py grade-diff A B` (tasks in `m5/tests/graded-tasks.json`; model code runs in a sandbox, `--no-code` skips it) |
+| Scored quality check, no judging (20 tasks: code, tools, JSON, answers, format) | `llm-compare.py grade --label A --url http://127.0.0.1:11234/v1 --runs 3` per setup, then `llm-compare.py grade-diff A B` (tasks in `m5/tests/graded-tasks.json`; model code runs in a sandbox, `--no-code` skips it). `--tier hard` runs 12 harder tasks meant to rank setups: ~28K and ~100K-token two-hop lookups, multi-step tool chains, harder code, exact arithmetic and puzzles (the ~100K task needs a context above Gemma's 32K) |
 | Probe context, cache and effort | `python3 ~/bin/llm-probe.py --suite all` |
 | Free space left by a deleted Hugging Face model | `hf-cache-orphans.py` (report), then `--delete` |
 | Compare probe runs | `python3 ~/bin/llm-probe.py --summary llm-probe-history.csv` |

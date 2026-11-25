@@ -3,6 +3,15 @@
 Newest first. Entries before Oct 16, 2026 were reconstructed from chat history.
 
 ## 2026-11-25
+- llm-compare.py `grade --tier hard`: 12 tasks meant to fail some of the time, since the base 20 scored 60/60 on
+  Flash (mlx-serve 26.11.2, `--runs 3`, 3.6 min, median 2.2 s per task; sandbox-exec worked on the M5). Two generated
+  operations logs (~28K and ~100K tokens, fixed seeds) hide a two-hop fact chain, the larger with a retired-code
+  decoy; three multi-turn tool chains with scripted results (call only when cold, two conversions then a sum);
+  harder code (LRU cache with expiry on an injected clock, CSV parser without the csv module, elapsed hours across
+  DST); exact 18-digit product, date arithmetic, a unique-answer seating puzzle, a letter count. Base tier stays
+  the default. Why: a check that every setup passes cannot rank Splash, oMLX or the next mlx-serve. Result: tested
+  against stub servers (all 12 pass with correct answers, all fail with typical mistakes, generated prompts are
+  identical run to run with one correct answer); not yet run on the M5.
 - llm-compare.py `grade` and `grade-diff`, with `m5/tests/graded-tasks.json`: 20 self-grading tasks, 4 each of code
   (the answer's Python runs against hidden tests), tools (right tool and arguments, or no call; OpenAI `tool_calls`
   or Qwen `<tool_call>` text), JSON (parsed and compared, exact keys), answer (final `ANSWER:` line) and format
