@@ -85,6 +85,9 @@ memory free for a 10.3 GB prompt); it passed once LM Studio's copy was unloaded.
   reaches the chat template as in other engines, and only a reasoning budget caps it. Requests at medium may
   think longer than on 26.10.3. Not observed on Nov 17: llm-compare at medium, all 10 prompts finished `stop`,
   longest 4,175 tokens, so none came near the 8192 cap either way. Watch for `finish=length` in later runs.
+- First observed Nov 25 (`llm-compare.py grade --tier hard --runs 3`, medium): exact 9-digit × 9-digit
+  multiplication hit the 8192 cap in 2 of 3 runs with no answer; the third finished in 2,374 tokens. All other
+  hard tasks stayed under 3,700 tokens. Auto's 8192 Flash cap would cut such a request off the same way.
 
 ## Measured (Oct 24-25)
 

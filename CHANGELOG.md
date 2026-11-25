@@ -3,6 +3,11 @@
 Newest first. Entries before Oct 16, 2026 were reconstructed from chat history.
 
 ## 2026-11-25
+- Hard-tier baseline, Flash on mlx-serve 26.11.2 (`grade --tier hard --runs 3`, 9.0 min): 31/36. Context 6/6
+  (the ~100K two-hop lookup with its decoy included; first run 52 s with a cold cache, then 4-8 s from the prefix
+  cache), tools 9/9, code 6/9 (DST elapsed hours 0/3), reasoning 10/12 (18-digit product 1/3: the other two hit
+  the 8192-token cap). First `finish=length` seen since 26.11.2 changed how reasoning_effort caps thinking;
+  recorded in the system profile.
 - llm-compare.py `grade --tier hard`: 12 tasks meant to fail some of the time, since the base 20 scored 60/60 on
   Flash (mlx-serve 26.11.2, `--runs 3`, 3.6 min, median 2.2 s per task; sandbox-exec worked on the M5). Two generated
   operations logs (~28K and ~100K tokens, fixed seeds) hide a two-hop fact chain, the larger with a retired-code
