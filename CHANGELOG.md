@@ -2,6 +2,19 @@
 
 Newest first. Entries before Oct 16, 2026 were reconstructed from chat history.
 
+## 2026-11-25
+- llm-compare.py `grade` and `grade-diff`, with `m5/tests/graded-tasks.json`: 20 self-grading tasks, 4 each of code
+  (the answer's Python runs against hidden tests), tools (right tool and arguments, or no call; OpenAI `tool_calls`
+  or Qwen `<tool_call>` text), JSON (parsed and compared, exact keys), answer (final `ANSWER:` line) and format
+  (bullets, word limits, exact reply, lines). `--runs N` repeats each task because temperature 1.0 is noisy;
+  `--only` takes ids or categories. Model code runs with `python3 -I`, an empty environment, CPU and file-size
+  limits, a 20 s timeout and, on macOS, `sandbox-exec` with no network and writes only to its temp folder
+  (`--no-code` skips it). Why: the 10-prompt blind report needs a person to judge every answer; graded tasks score
+  engine or setting changes (Splash, oMLX, mlx-serve updates) unattended, after the approach in l8w8's M5 Ultra
+  22-setup run. Result: tested in the workspace against stub servers (all 20 pass with correct answers and fail
+  with typical mistakes, including an infinite loop stopped by the CPU limit). The sandbox profile and real
+  model runs are not yet tested on the M5.
+
 ## 2026-11-23
 - m5-max-https.md: restore the dollar sign in launchctl print gui/$(id -u)/sh.brew.caddy, dropped when the restart paragraph was written; the printed command would not run as pasted.
 - m5-max-https.md: the Caddyfile restart instruction now states the domain. sh.brew.caddy is a gui-domain LaunchAgent at ~/Library/LaunchAgents/sh.brew.caddy.plist, verified with launchctl print gui/503/sh.brew.caddy showing active count 1, so a sudo restart addresses a system-domain job that does not exist and silently leaves the old config loaded. The command itself is unchanged; the domain and the prohibition are the fix.

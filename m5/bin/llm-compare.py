@@ -6,11 +6,22 @@ judged blind. Python 3 stdlib only.
   run     send every prompt to one server and save the answers as ~/llm-compare/<label>.json
   report  build a blind side-by-side page from two saved runs: per prompt you pick the better
           answer (or "same") without knowing which setup wrote it, then press Reveal
+  grade   run the self-grading tasks (m5/tests/graded-tasks.json) and score them pass/fail with no
+          judging: code runs against hidden tests, tool calls and JSON are compared to the expected
+          value, answers and formats are checked by rule. Saves ~/llm-compare/<label>.graded.json
+  grade-diff  compare two graded runs task by task and per category
 
   ~/bin/llm-compare.py run --label mlx  --url http://127.0.0.1:11234/v1
   ~/bin/llm-compare.py run --label other --url http://127.0.0.1:11236/v1 --model flash-next-test
   ~/bin/llm-compare.py report mlx gguf          # writes ~/llm-compare/mlx-vs-gguf.html; open it
   ~/bin/llm-compare.py run --label nomtp --url http://127.0.0.1:11234/v1 --only 2,3,7 --extra '{"enable_mtp": false}'
+  ~/bin/llm-compare.py grade --label mlx-26.11.2 --url http://127.0.0.1:11234/v1 --runs 3
+  ~/bin/llm-compare.py grade --label gemma --url http://127.0.0.1:11235/v1 --model gemma-4-26b-a4b-it-qat
+  ~/bin/llm-compare.py grade-diff mlx-26.11.2 splash-1.7.1
+
+Graded code runs the model's Python in a child process: on macOS inside sandbox-exec (no network,
+writes only to its own temp folder), with CPU, file-size and wall-clock limits, isolated Python (-I),
+and an empty environment. Skip code tasks with --no-code.
 
 Prompts: m5/tests/quality-prompts.md (each "### " heading starts a prompt; "> Check:" lines are
 judging notes, not sent). Settings match Auto's Flash route: thinking on, medium effort,
@@ -19,10 +30,11 @@ rewritten GGUF template defaults to medium, so both setups think at medium. Reas
 in the report, only the answers; speed and token counts stay hidden until Reveal.
 Results stay in ~/llm-compare (never commit them: answers may contain personal context).
 """
-import argparse, html, json, os, random, re, sys, time, urllib.error, urllib.request
+import argparse, html, json, os, random, re, shutil, statistics, subprocess, sys, tempfile, time, urllib.error, urllib.request
 
 HERE = os.path.dirname(os.path.realpath(__file__))
 DEFAULT_PROMPTS = os.path.join(HERE, "..", "tests", "quality-prompts.md")
+DEFAULT_TASKS = os.path.join(HERE, "..", "tests", "graded-tasks.json")
 OUT_DIR = os.path.expanduser("~/llm-compare")
 THINK_RE = re.compile(r"<think>.*?</think>\s*", re.S)
 
@@ -215,6 +227,317 @@ def cmd_report(a):
     print(f"Wrote {out}\nOpen it: open '{out}'")
 
 
+# ---------------------------------------------------------------- grade: self-scoring tasks
+
+def chat(url, body, timeout):
+    """POST one chat completion; return (message, finish_reason, completion_tokens, seconds) or raise."""
+    req = urllib.request.Request(url, data=json.dumps(body).encode(), headers={"Content-Type": "application/json"})
+    t0 = time.time()
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        m = json.load(r)
+    ch = (m.get("choices") or [{}])[0]
+    return ch.get("message") or {}, ch.get("finish_reason"), (m.get("usage") or {}).get("completion_tokens"), time.time() - t0
+
+
+def visible(msg):
+    """Answer text with any inline <think> block removed."""
+    return THINK_RE.sub("", msg.get("content") or "").strip()
+
+
+def match(expect, got, tol=1e-6):
+    """True if got matches expect. Dicts match key by key, lists in order; {"ci": s} is a case-insensitive,
+    whitespace-trimmed string; numbers compare with tolerance; booleans must be booleans."""
+    if isinstance(expect, dict) and set(expect) == {"ci"}:
+        return isinstance(got, str) and got.strip().lower() == expect["ci"].lower()
+    if isinstance(expect, bool) or isinstance(got, bool):
+        return expect is got
+    if isinstance(expect, (int, float)):
+        if isinstance(got, str):
+            try:
+                got = float(got.replace(",", ""))
+            except ValueError:
+                return False
+        return isinstance(got, (int, float)) and abs(got - expect) <= tol
+    if isinstance(expect, str):
+        return isinstance(got, str) and got.strip() == expect
+    if isinstance(expect, list):
+        return isinstance(got, list) and len(got) == len(expect) and all(match(e, g, tol) for e, g in zip(expect, got))
+    if isinstance(expect, dict):
+        return isinstance(got, dict) and all(k in got and match(v, got[k], tol) for k, v in expect.items())
+    return expect == got
+
+
+def exact_keys(expect, got):
+    """Every dict in got has exactly the keys of the matching dict in expect."""
+    if isinstance(expect, dict) and set(expect) != {"ci"}:
+        return isinstance(got, dict) and set(got) == set(expect) and all(exact_keys(v, got[k]) for k, v in expect.items())
+    if isinstance(expect, list):
+        return isinstance(got, list) and all(exact_keys(e, g) for e, g in zip(expect, got))
+    return True
+
+
+def strip_fence(text):
+    m = re.search(r"```(?:json)?\s*\n(.*?)```", text, re.S)
+    return (m.group(1) if m else text).strip()
+
+
+SANDBOX_PROFILE = """(version 1)
+(allow default)
+(deny network*)
+(deny file-write*)
+(allow file-write* (subpath "{tmp}") (literal "/dev/null") (literal "/dev/stdout") (literal "/dev/stderr"))
+"""
+
+
+def run_python(code, tests, timeout=20):
+    """Run code + tests in an isolated child Python. Returns (passed, detail)."""
+    tmp = os.path.realpath(tempfile.mkdtemp(prefix="llmgrade-"))
+    try:
+        path = os.path.join(tmp, "t.py")
+        with open(path, "w") as f:
+            f.write(code + "\n\n# --- hidden tests ---\n" + tests + "\nprint('ALL TESTS PASSED')\n")
+        cmd = [sys.executable, "-I", path]
+        if shutil.which("sandbox-exec"):
+            prof = os.path.join(tmp, "p.sb")
+            with open(prof, "w") as f:
+                f.write(SANDBOX_PROFILE.format(tmp=tmp))
+            cmd = ["sandbox-exec", "-f", prof] + cmd
+
+        def limits():
+            import resource
+            for lim, val in ((resource.RLIMIT_CPU, 15), (resource.RLIMIT_FSIZE, 10 << 20)):
+                try:
+                    resource.setrlimit(lim, (val, val))
+                except (ValueError, OSError):
+                    pass
+        try:
+            p = subprocess.run(cmd, cwd=tmp, env={"PATH": "/usr/bin:/bin", "HOME": tmp, "TMPDIR": tmp},
+                               capture_output=True, text=True, timeout=timeout, preexec_fn=limits)
+        except subprocess.TimeoutExpired:
+            return False, f"timed out after {timeout}s"
+        if p.returncode == 0 and "ALL TESTS PASSED" in p.stdout:
+            return True, "tests passed"
+        if p.returncode < 0:
+            return False, "killed (CPU limit or signal %d)" % -p.returncode
+        err = (p.stderr.strip().splitlines() or ["exit %d" % p.returncode])[-1]
+        return False, err[:160]
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def tool_calls(msg):
+    """[(name, args_dict)] from OpenAI tool_calls, or from Qwen-style <tool_call>{json}</tool_call> in content."""
+    out = []
+    for tc in msg.get("tool_calls") or []:
+        fn = tc.get("function") or {}
+        args = fn.get("arguments") or {}
+        if isinstance(args, str):
+            try:
+                args = json.loads(args) if args.strip() else {}
+            except json.JSONDecodeError:
+                args = {"__unparsed__": args}
+        out.append((fn.get("name"), args))
+    if not out:
+        for blob in re.findall(r"<tool_call>\s*(\{.*?\})\s*</tool_call>", msg.get("content") or "", re.S):
+            try:
+                j = json.loads(blob)
+                out.append((j.get("name"), j.get("arguments") or j.get("parameters") or {}))
+            except json.JSONDecodeError:
+                pass
+    return out
+
+
+def words(s):
+    return re.findall(r"[\w'’-]+", s)
+
+
+def grade_one(task, msg, no_code):
+    """(verdict, detail): verdict is 'pass', 'fail' or 'skip'."""
+    g, text = task["grade"], visible(msg)
+    t = g["type"]
+    if t == "python":
+        if no_code:
+            return "skip", "--no-code"
+        blocks = re.findall(r"```(?:python|py)?\s*\n(.*?)```", text, re.S)
+        if not blocks:
+            return "fail", "no code block"
+        ok, why = run_python(max(blocks, key=len), g["tests"])
+        return ("pass" if ok else "fail"), why
+    if t == "tool":
+        calls = tool_calls(msg)
+        if not calls:
+            return "fail", "no tool call"
+        name, args = calls[0]
+        if name != g["name"]:
+            return "fail", f"called {name}"
+        bad = [k for k, v in g["args"].items() if k not in args or not match(v, args[k])]
+        return ("fail", "wrong " + ", ".join(f"{k}={args.get(k)!r}" for k in bad)) if bad else ("pass", f"{name} ok")
+    if t == "no_tool":
+        if tool_calls(msg):
+            return "fail", f"called {tool_calls(msg)[0][0]}"
+        missing = [c for c in g.get("contains", []) if c not in text]
+        return ("fail", "missing " + ", ".join(missing)) if missing else ("pass", "answered directly")
+    if t == "json":
+        raw = strip_fence(text)
+        try:
+            got = json.loads(raw)
+        except json.JSONDecodeError as e:
+            return "fail", f"not JSON ({e.msg})"
+        if not match(g["expect"], got, g.get("tol", 1e-6)):
+            return "fail", "values differ: " + raw[:120].replace("\n", " ")
+        if g.get("exact_keys") and not exact_keys(g["expect"], got):
+            return "fail", "extra or missing keys"
+        return "pass", "matches"
+    if t == "answer":
+        lines = [m.strip() for m in re.findall(r"(?im)^\s*\**\s*ANSWER\s*\**\s*:\s*\**(.+?)\**\s*$", text)]
+        if not lines:
+            return "fail", "no 'ANSWER:' line"
+        got = lines[-1].rstrip(".")
+        ok = match(g["expect"], got, g.get("tol", 1e-6))
+        return ("pass" if ok else "fail", f"ANSWER: {got[:60]}")
+    if t == "format":
+        body = text.strip()
+        lines = [l for l in body.splitlines() if l.strip()]
+        if "exact" in g and body.strip().rstrip(".").lower() != g["exact"]:
+            return "fail", f"got {body[:40]!r}"
+        if "lines" in g and len(lines) != g["lines"]:
+            return "fail", f"{len(lines)} lines"
+        if "bullets" in g:
+            bl = [l for l in lines if re.match(r"\s*[-*•]\s+", l)]
+            if len(bl) != g["bullets"]:
+                return "fail", f"{len(bl)} bullets"
+            if g.get("only_bullets") and len(bl) != len(lines):
+                return "fail", "text besides the bullets"
+            long = [len(words(re.sub(r"^\s*[-*•]\s+", "", l))) for l in bl if len(words(re.sub(r"^\s*[-*•]\s+", "", l))) > g.get("max_words_per_bullet", 10 ** 6)]
+            if long:
+                return "fail", f"bullet of {long[0]} words"
+        if "max_words" in g and len(words(body)) > g["max_words"]:
+            return "fail", f"{len(words(body))} words"
+        if "not_regex" in g and re.search(g["not_regex"], body):
+            return "fail", "banned text present"
+        if "regex" in g and not re.search(g["regex"], body):
+            return "fail", "expected text missing"
+        for rx in g.get("all_regex", []):
+            if not re.search(rx, body):
+                return "fail", f"missing /{rx}/"
+        return "pass", "format ok"
+    return "fail", f"unknown grade type {t}"
+
+
+def load_tasks(path):
+    try:
+        d = json.load(open(os.path.expanduser(path), encoding="utf-8"))
+    except FileNotFoundError:
+        sys.exit(f"tasks file not found: {path}")
+    except json.JSONDecodeError as e:
+        sys.exit(f"tasks file is not valid JSON: {e}")
+    return d.get("tools", []), d["tasks"]
+
+
+def cmd_grade(a):
+    tools, tasks = load_tasks(a.tasks)
+    try:
+        extra = json.loads(a.extra) if a.extra else {}
+    except json.JSONDecodeError as e:
+        sys.exit(f"--extra is not valid JSON: {e}")
+    if a.only:
+        keep = {x.strip() for x in a.only.split(",")}
+        tasks = [t for t in tasks if t["id"] in keep or t["cat"] in keep]
+        if not tasks:
+            sys.exit(f"--only {a.only}: no task id or category matched")
+    os.makedirs(OUT_DIR, exist_ok=True)
+    out_path = os.path.join(OUT_DIR, f"{a.label}.graded.json")
+    url = a.url.rstrip("/") + "/chat/completions"
+    sandbox = "sandbox-exec" if shutil.which("sandbox-exec") else "NOT sandboxed (no sandbox-exec)"
+    print(f"{len(tasks)} tasks x {a.runs} run(s) → {url} (model {a.model}); code: "
+          f"{'skipped' if a.no_code else sandbox}; saving to {out_path}")
+    results = []
+    for t in tasks:
+        rec = {"id": t["id"], "cat": t["cat"], "title": t["title"], "runs": []}
+        for n in range(a.runs):
+            body = {"model": a.model, "max_tokens": a.max_tokens, "temperature": 1.0, "top_p": 0.95, "top_k": 20,
+                    "chat_template_kwargs": {"enable_thinking": True, "reasoning_effort": a.effort},
+                    "messages": [{"role": "user", "content": t["prompt"]}], **extra}
+            if t["cat"] == "tools":
+                body["tools"] = tools
+            try:
+                msg, finish, tok, dt = chat(url, body, a.timeout)
+                verdict, why = grade_one(t, msg, a.no_code)
+            except urllib.error.HTTPError as e:
+                msg, finish, tok, dt = {}, "error", None, 0.0
+                verdict, why = "fail", f"HTTP {e.code} {e.read().decode('utf-8', 'ignore')[:120]}"
+            except (urllib.error.URLError, TimeoutError, ConnectionError) as e:
+                sys.exit(f"{t['id']}: cannot reach {url}: {getattr(e, 'reason', e)}")
+            if finish == "length" and verdict == "fail":
+                why += f" (hit the {a.max_tokens}-token cap)"
+            rec["runs"].append({"verdict": verdict, "why": why, "seconds": round(dt, 1), "tokens": tok,
+                                "finish": finish, "answer": visible(msg)[:4000],
+                                "tool_calls": [[nm, ag] for nm, ag in tool_calls(msg)]})
+            mark = {"pass": "PASS", "fail": "FAIL", "skip": "skip"}[verdict]
+            print(f"  {t['id']:10} {t['title'][:26]:26} {mark}  {dt:6.1f} s  {tok or 0:6} tok  {why}")
+        results.append(rec)
+        with open(out_path, "w") as f:
+            json.dump({"label": a.label, "url": a.url, "model": a.model, "effort": a.effort, "runs": a.runs,
+                       "max_tokens": a.max_tokens, "extra": extra, "code": "skipped" if a.no_code else sandbox,
+                       "date": time.strftime("%Y-%m-%d %H:%M"), "results": results}, f, indent=1)
+    print_summary(a.label, results)
+    print(f"Saved {out_path}")
+
+
+def tally(results):
+    cats, secs = {}, []
+    for r in results:
+        c = cats.setdefault(r["cat"], [0, 0])
+        for run in r["runs"]:
+            if run["verdict"] == "skip":
+                continue
+            c[0] += run["verdict"] == "pass"
+            c[1] += 1
+            secs.append(run["seconds"])
+    return cats, secs
+
+
+def print_summary(label, results):
+    cats, secs = tally(results)
+    p, n = sum(v[0] for v in cats.values()), sum(v[1] for v in cats.values())
+    parts = "  ".join(f"{c} {v[0]}/{v[1]}" for c, v in cats.items() if v[1])
+    med = statistics.median(secs) if secs else 0
+    print(f"{label}: {p}/{n} passed ({100 * p / n if n else 0:.0f}%)  |  {parts}  |  "
+          f"total {sum(secs) / 60:.1f} min, median {med:.1f} s per task")
+
+
+def load_graded(lab):
+    path = lab if lab.endswith(".json") else os.path.join(OUT_DIR, f"{lab}.graded.json")
+    try:
+        return json.load(open(path))
+    except FileNotFoundError:
+        sys.exit(f"no graded run: {path} (run grade first)")
+
+
+def cmd_grade_diff(a):
+    ra, rb = load_graded(a.a), load_graded(a.b)
+    by = {r["id"]: r for r in rb["results"]}
+    print(f"{'task':10} {'':26} {ra['label'][:14]:>14} {rb['label'][:14]:>14}")
+    for r in ra["results"]:
+        o = by.get(r["id"])
+        if not o:
+            continue
+        def frac(x):
+            runs = [u for u in x["runs"] if u["verdict"] != "skip"]
+            return sum(u["verdict"] == "pass" for u in runs), len(runs)
+        pa, pb = frac(r), frac(o)
+        if not pa[1] or not pb[1]:
+            print(f"{r['id']:10} {r['title'][:26]:26} {'skipped on one side':>29}")
+            continue
+        flag = "" if pa[0] * max(pb[1], 1) == pb[0] * max(pa[1], 1) else ("  <- " + (ra["label"] if pa[0] / max(pa[1], 1) > pb[0] / max(pb[1], 1) else rb["label"]) + " better")
+        print(f"{r['id']:10} {r['title'][:26]:26} {pa[0]:>10}/{pa[1]:<3} {pb[0]:>10}/{pb[1]:<3}{flag}")
+    ids = set(by) & {r["id"] for r in ra["results"]}
+    print_summary(ra["label"], [r for r in ra["results"] if r["id"] in ids])
+    print_summary(rb["label"], [r for r in rb["results"] if r["id"] in ids])
+    if ra.get("runs", 1) == 1 or rb.get("runs", 1) == 1:
+        print("Note: temperature 1.0 makes single runs noisy; a 1-task difference is not a finding. Use --runs 3.")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -233,6 +556,22 @@ def main():
     p.add_argument("a"); p.add_argument("b")
     p.add_argument("--out", default="")
     p.set_defaults(func=cmd_report)
+    g = sub.add_parser("grade", help="run the self-grading tasks against one server and score them")
+    g.add_argument("--label", required=True)
+    g.add_argument("--url", required=True)
+    g.add_argument("--model", default="flash-next")
+    g.add_argument("--tasks", default=DEFAULT_TASKS)
+    g.add_argument("--effort", default="medium")
+    g.add_argument("--max-tokens", type=int, default=8192)
+    g.add_argument("--timeout", type=int, default=900, help="seconds per request")
+    g.add_argument("--runs", type=int, default=1, help="repeat each task N times (temperature 1.0 is noisy)")
+    g.add_argument("--only", default="", help="task ids or categories, e.g. code or tools-2,json")
+    g.add_argument("--no-code", action="store_true", help="skip the code tasks (no model code is run)")
+    g.add_argument("--extra", default="", help="JSON merged into each request")
+    g.set_defaults(func=cmd_grade)
+    d = sub.add_parser("grade-diff", help="compare two graded runs")
+    d.add_argument("a"); d.add_argument("b")
+    d.set_defaults(func=cmd_grade_diff)
     a = ap.parse_args()
     a.func(a)
 
