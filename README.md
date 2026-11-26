@@ -149,6 +149,7 @@ Token caps (v1.3.2): Auto builds its own request to the model server, so persona
 | Blind answer-quality comparison of two setups | `llm-compare.py run --label A --url …` per setup, then `llm-compare.py report A B` and open the page (prompts in `m5/tests/quality-prompts.md`; results stay in `~/llm-compare`) |
 | Scored quality check, no judging (20 tasks: code, tools, JSON, answers, format) | `llm-compare.py grade --label A --url http://127.0.0.1:11234/v1 --runs 3` per setup, then `llm-compare.py grade-diff A B` (tasks in `m5/tests/graded-tasks.json`; model code runs in a sandbox, `--no-code` skips it). `--tier hard` runs 12 harder tasks meant to rank setups: ~28K and ~100K-token two-hop lookups, multi-step tool chains, harder code, exact arithmetic and puzzles (the ~100K task needs a context above Gemma's 32K) |
 | Probe context, cache and effort | `python3 ~/bin/llm-probe.py --suite all` |
+| Try a candidate MLX model, then remove it | `~/bin/model-trial.sh owner/repo`: downloads to `~/llm-trial/`, stops Gemma for headroom, serves the candidate on :11236, runs llm-bench and `grade` (base once, hard 3x), compares with Flash, then deletes the download and restarts Gemma (`KEEP=1` keeps it). About 30-45 min; Flash stays up |
 | Free space left by a deleted Hugging Face model | `hf-cache-orphans.py` (report), then `--delete` |
 | Compare probe runs | `python3 ~/bin/llm-probe.py --summary llm-probe-history.csv` |
 | Memory per model | `memory_mb` in each server's `/metrics.json` |

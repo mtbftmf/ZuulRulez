@@ -2,6 +2,15 @@
 
 Newest first. Entries before Oct 16, 2026 were reconstructed from chat history.
 
+## 2026-11-26
+- `m5/bin/model-trial.sh owner/repo`: one-command trial of a candidate MLX model. Downloads into its own folder
+  (`~/llm-trial/<name>`, not the shared Hugging Face cache, so removal frees the space), stops Gemma for memory
+  headroom (Flash + Gemma peak 88-102 GB of the 112 GiB limit), serves the candidate on 127.0.0.1:11236 with
+  `--mtp` and a 131K context, runs llm-bench, `grade` base once and hard 3x, `grade-diff` against Flash's baselines,
+  then stops it, deletes the folder and restarts Gemma, also on Ctrl-C or failure. Why: comparing new builds
+  (first: a VectorCut Swift-1.5-Qwen3.8-27B 4-bit) took many hand-typed steps. Result: tested in the workspace
+  with stand-in hf, mlx-serve and up/down scripts, including an interrupted run; not yet run on the M5.
+
 ## 2026-11-25
 - Hard-tier baseline, Flash on mlx-serve 26.11.2 (`grade --tier hard --runs 3`, 9.0 min): 31/36. Context 6/6
   (the ~100K two-hop lookup with its decoy included; first run 52 s with a cold cache, then 4-8 s from the prefix
