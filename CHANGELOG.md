@@ -2,6 +2,19 @@
 
 Newest first. Entries before Oct 16, 2026 were reconstructed from chat history.
 
+## 2026-11-27
+- model-trial.sh: first M5 run (Nov 26) finished cleanly in 26 min and left nothing behind. Swift-1.5-Qwen3.8-27B
+  VectorCut MLX 4-bit on mlx-serve 26.11.2 with its own MTP head: ~70 tok/s decode, 963 tok/s prefill at 7.8K, base
+  20/20, hard 28/36 (Flash 31/36): ~100K two-hop lookup 1/3 against Flash's 3/3, long multiplication 0/3 at the
+  8192 cap. Wired memory reached 100.4 GB with Gemma stopped, so stopping Gemma stays the default.
+- model-trial.sh `ENGINE=mometal` and `DRAFT_REPO=`: builds github.com/tinjakr/mometal from source into
+  `~/llm-trial/mometal-src` (removed afterwards) and serves GPU-only (`--ane-models off`; its Neural Engine mode
+  needs SIP disabled plus an ACL on /Library/Caches/com.apple.aned, not done on this machine). `DRAFT_REPO` adds a
+  DFlash drafter to either engine (mlx-serve `--drafter`, mometal `--dflash`), so one model can be compared on both
+  engines with the same speculative decoding. Why: the mometal author asked for M5 numbers, and base
+  Qwen3.8-27B is also the unedited comparison the VectorCut trial lacked. Result: tested with stand-ins (both
+  engines, shared downloads with KEEP=1, full cleanup); not yet run on the M5.
+
 ## 2026-11-26
 - `m5/bin/model-trial.sh owner/repo`: one-command trial of a candidate MLX model. Downloads into its own folder
   (`~/llm-trial/<name>`, not the shared Hugging Face cache, so removal frees the space), stops Gemma for memory
